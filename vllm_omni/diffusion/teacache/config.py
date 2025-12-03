@@ -4,10 +4,16 @@
 from dataclasses import dataclass
 from typing import List, Optional
 
-# Model-specific polynomial coefficients from TeaCache paper
+# Model-specific polynomial coefficients for rescaling L1 distances
+# These coefficients account for model-specific characteristics in how embeddings change
+# Source: TeaCache paper and ComfyUI-TeaCache empirical tuning
 _MODEL_COEFFICIENTS = {
+    # FLUX model coefficients from TeaCache paper
     "Flux": [4.98651651e02, -2.83781631e02, 5.58554382e01, -3.82021401e00, 2.64230861e-01],
-    "Qwen": [4.98651651e02, -2.83781631e02, 5.58554382e01, -3.82021401e00, 2.64230861e-01],  # Use FLUX coefficients initially
+
+    # Qwen-Image model coefficients from ComfyUI-TeaCache
+    # Tuned specifically for Qwen's dual-stream transformer architecture
+    "Qwen": [-4.50000000e02, 2.80000000e02, -4.50000000e01, 3.20000000e00, -2.00000000e-02],
 }
 
 
