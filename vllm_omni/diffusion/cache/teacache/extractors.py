@@ -1,13 +1,22 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
-from typing import Callable
+"""
+Model-specific extractors for TeaCache.
+
+This module provides a registry of extractor functions that know how to extract
+modulated inputs from different transformer architectures. Adding support for
+a new model requires only adding a new extractor function to the registry.
+"""
+
+from typing import Callable, Union
 
 import torch
+import torch.nn as nn
 
 
 def extract_qwen_modulated_input(
-    module, hidden_states: torch.Tensor, temb: torch.Tensor
+    module: nn.Module, hidden_states: torch.Tensor, temb: torch.Tensor
 ) -> torch.Tensor:
     """
     Extract modulated input for QwenImageTransformer2DModel.
@@ -44,35 +53,95 @@ def extract_qwen_modulated_input(
 
 
 # Registry for model-specific extractors
+# Key can be: model class name, model type string, or partial class name match
 EXTRACTOR_REGISTRY: dict[str, Callable] = {
     "qwen": extract_qwen_modulated_input,
     "Qwen": extract_qwen_modulated_input,
     "QwenImageTransformer2DModel": extract_qwen_modulated_input,
+    "QwenImage": extract_qwen_modulated_input,
 }
 
 
-def get_extractor(model_type: str) -> Callable:
+def register_extractor(model_identifier: str, extractor_fn: Callable) -> None:
     """
-    Get extractor function for given model type.
+    Register a new extractor function for a model type.
+
+    This allows extending TeaCache support to new models without modifying
+    the core TeaCache code.
 
     Args:
-        model_type: Model type identifier
+        model_identifier: Model type identifier (class name or type string)
+        extractor_fn: Function with signature (module, hidden_states, temb) -> modulated_input
+
+    Example:
+        >>> def extract_flux_modulated_input(module, hidden_states, temb):
+        ...     return module.transformer_blocks[0].norm1(hidden_states, emb=temb)[0]
+        >>> register_extractor("FluxTransformer2DModel", extract_flux_modulated_input)
+    """
+    EXTRACTOR_REGISTRY[model_identifier] = extractor_fn
+
+
+def get_extractor(model_or_type: Union[nn.Module, str]) -> Callable:
+    """
+    Get extractor function for given model or model type.
+
+    This function auto-detects the appropriate extractor based on:
+    1. Explicit model type string
+    2. Module class name (exact match)
+    3. Module class name (partial match)
+
+    Args:
+        model_or_type: Either a torch.nn.Module instance or a model type string
 
     Returns:
-        Extractor function
+        Extractor function with signature (module, hidden_states, temb) -> modulated_input
 
     Raises:
         ValueError: If model type not found in registry
+
+    Example:
+        >>> # Auto-detect from module
+        >>> extractor = get_extractor(transformer)
+        >>> modulated = extractor(transformer, hidden_states, temb)
+        >>>
+        >>> # Explicit type
+        >>> extractor = get_extractor("Qwen")
     """
-    if model_type in EXTRACTOR_REGISTRY:
-        return EXTRACTOR_REGISTRY[model_type]
+    # If it's a module, get class name for lookup
+    if isinstance(model_or_type, nn.Module):
+        model_class_name = model_or_type.__class__.__name__
+        
+        # Try exact class name match first
+        if model_class_name in EXTRACTOR_REGISTRY:
+            return EXTRACTOR_REGISTRY[model_class_name]
+        
+        # Try partial match (e.g., "QwenImage" in "QwenImageTransformer2DModel")
+        for key, extractor in EXTRACTOR_REGISTRY.items():
+            if key in model_class_name:
+                return extractor
+        
+        # Try case-insensitive match
+        for key, extractor in EXTRACTOR_REGISTRY.items():
+            if key.lower() == model_class_name.lower():
+                return extractor
+        
+        model_type = model_class_name
+    else:
+        model_type = model_or_type
+        
+        # Try direct lookup for string
+        if model_type in EXTRACTOR_REGISTRY:
+            return EXTRACTOR_REGISTRY[model_type]
+        
+        # Try case-insensitive match
+        for key, extractor in EXTRACTOR_REGISTRY.items():
+            if key.lower() == model_type.lower():
+                return extractor
 
-    # Try case-insensitive match
-    for key, extractor in EXTRACTOR_REGISTRY.items():
-        if key.lower() == model_type.lower():
-            return extractor
-
+    # No match found
+    available_types = list(EXTRACTOR_REGISTRY.keys())
     raise ValueError(
         f"Unknown model type: {model_type}. "
-        f"Available types: {list(EXTRACTOR_REGISTRY.keys())}"
+        f"Available types: {available_types}\n"
+        f"To add support for a new model, use register_extractor() or add to EXTRACTOR_REGISTRY."
     )
