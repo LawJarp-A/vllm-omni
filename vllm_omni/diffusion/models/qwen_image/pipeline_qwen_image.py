@@ -28,7 +28,7 @@ from vllm_omni.diffusion.models.qwen_image.qwen_image_transformer import (
     QwenImageTransformer2DModel,
 )
 from vllm_omni.diffusion.request import OmniDiffusionRequest
-from vllm_omni.diffusion.teacache import TeaCacheConfig, apply_teacache
+from vllm_omni.diffusion.cache.teacache import TeaCacheConfig, apply_teacache
 from vllm_omni.model_executor.model_loader.weight_utils import (
     download_weights_from_hf_specific,
 )
