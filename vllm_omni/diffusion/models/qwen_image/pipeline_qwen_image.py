@@ -270,6 +270,15 @@ class QwenImagePipeline(
             )
             logger.info("Loaded Qwen-Image tokenizer successfully.")
 
+        # Apply cache adapter (NEW - replaces per-request enable_teacache)
+        from vllm_omni.diffusion.cache.apply import setup_cache
+
+        self._cache_adapter = setup_cache(
+            self.transformer,
+            cache_type=od_config.cache_adapter,
+            cache_config=od_config.cache_config
+        )
+
         self.stage = None
 
         self.vae_scale_factor = 2 ** len(self.vae.temperal_downsample) if getattr(self, "vae", None) else 8
@@ -541,14 +550,9 @@ class QwenImagePipeline(
         guidance,
         true_cfg_scale,
     ):
-        # Reset TeaCache state at the start of diffusion loop to ensure clean state
-        teacache_enabled = (
-            hasattr(self.transformer, "_hook_registry")
-            and self.transformer._hook_registry.get_hook("teacache") is not None
-        )
-        if teacache_enabled:
-            # Reset hook state for new diffusion loop
-            self.transformer._hook_registry.reset_hook("teacache")
+        # Reset cache adapter state at the start of diffusion loop to ensure clean state
+        if self._cache_adapter is not None:
+            self._cache_adapter.reset(self.transformer)
 
         self.scheduler.set_begin_index(0)
         for i, t in enumerate(timesteps):
@@ -572,7 +576,7 @@ class QwenImagePipeline(
                 "attention_kwargs": self.attention_kwargs,
                 "return_dict": False,
             }
-            if teacache_enabled:
+            if self._cache_adapter is not None:
                 transformer_kwargs["cache_branch"] = "positive"
             
             noise_pred = self.transformer(**transformer_kwargs)[0]
@@ -591,7 +595,7 @@ class QwenImagePipeline(
                     "attention_kwargs": self.attention_kwargs,
                     "return_dict": False,
                 }
-                if teacache_enabled:
+                if self._cache_adapter is not None:
                     neg_transformer_kwargs["cache_branch"] = "negative"
                 
                 neg_noise_pred = self.transformer(**neg_transformer_kwargs)[0]
@@ -662,19 +666,6 @@ class QwenImagePipeline(
         self._attention_kwargs = attention_kwargs
         self._current_timestep = None
         self._interrupt = False
-
-        # Enable TeaCache if requested
-        if req.enable_teacache:
-            # Check if hook is already registered
-            if not hasattr(self.transformer, "_hook_registry") or self.transformer._hook_registry.get_hook("teacache") is None:
-                teacache_config = TeaCacheConfig(
-                    rel_l1_thresh=0.2,
-                    model_type="QwenImagePipeline",
-                )
-                apply_teacache_hook(self.transformer, teacache_config)
-            else:
-                # Reset state for new inference run
-                self.transformer._hook_registry.reset_hook("teacache")
 
         if prompt is not None and isinstance(prompt, str):
             batch_size = 1

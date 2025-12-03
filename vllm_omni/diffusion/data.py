@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import enum
+import os
 import random
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Dict
 
 import torch
 from vllm.logger import init_logger
@@ -30,8 +31,12 @@ class OmniDiffusionConfig:
     # Workload type
     # workload_type: WorkloadType = WorkloadType.T2V
 
-    # Cache strategy
+    # Cache strategy (legacy)
     cache_strategy: str = "none"
+
+    # Cache adapter configuration (NEW)
+    cache_adapter: str = "none"  # "tea_cache", "deep_cache", etc.
+    cache_config: Dict[str, Any] = field(default_factory=dict)
 
     # Distributed executor backend
     distributed_executor_backend: str = "mp"
@@ -178,6 +183,12 @@ class OmniDiffusionConfig:
 
     @classmethod
     def from_kwargs(cls, **kwargs: Any) -> "OmniDiffusionConfig":
+        # Check environment variable as fallback for cache_adapter
+        if "cache_adapter" not in kwargs:
+            kwargs["cache_adapter"] = os.environ.get(
+                "DIFFUSION_CACHE_ADAPTER",
+                "none"
+            ).lower()
         return cls(**kwargs)
 
 
