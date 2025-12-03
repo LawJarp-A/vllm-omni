@@ -12,8 +12,8 @@ import numpy as np
 import torch
 from typing import Optional, Dict, Tuple
 
-from vllm_omni.diffusion.teacache.config import TeaCacheConfig
-from vllm_omni.diffusion.teacache.extractors import get_extractor
+from vllm_omni.diffusion.cache.teacache.config import TeaCacheConfig
+from vllm_omni.diffusion.cache.teacache.extractors import get_extractor
 
 
 class TeaCacheWrapper:

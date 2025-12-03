@@ -8,12 +8,13 @@ TeaCache speeds up diffusion inference by reusing transformer block computations
 when consecutive timestep embeddings are similar.
 """
 
-from vllm_omni.diffusion.teacache.config import TeaCacheConfig
-from vllm_omni.diffusion.teacache.core import apply_teacache
-from vllm_omni.diffusion.teacache.state import TeaCacheState
+from vllm_omni.diffusion.cache.teacache.config import TeaCacheConfig
+from vllm_omni.diffusion.cache.teacache.core import TeaCacheWrapper, apply_teacache
+from vllm_omni.diffusion.cache.teacache.state import TeaCacheState
 
 __all__ = [
     "TeaCacheConfig",
+    "TeaCacheWrapper",
     "TeaCacheState",
     "apply_teacache",
 ]
