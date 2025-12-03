@@ -28,7 +28,8 @@ from vllm_omni.diffusion.models.qwen_image.qwen_image_transformer import (
     QwenImageTransformer2DModel,
 )
 from vllm_omni.diffusion.request import OmniDiffusionRequest
-from vllm_omni.diffusion.cache.teacache import TeaCacheConfig, apply_teacache
+from vllm_omni.diffusion.cache.teacache import TeaCacheConfig
+from vllm_omni.diffusion.cache.teacache.hook import apply_teacache_hook
 from vllm_omni.model_executor.model_loader.weight_utils import (
     download_weights_from_hf_specific,
 )
@@ -541,10 +542,13 @@ class QwenImagePipeline(
         true_cfg_scale,
     ):
         # Reset TeaCache state at the start of diffusion loop to ensure clean state
-        teacache_enabled = hasattr(self.transformer, "_teacache_wrapper") and self.transformer._teacache_wrapper is not None
+        teacache_enabled = (
+            hasattr(self.transformer, "_hook_registry")
+            and self.transformer._hook_registry.get_hook("teacache") is not None
+        )
         if teacache_enabled:
-            # Use the wrapper's reset method to clear all cached states
-            self.transformer._teacache_wrapper.reset()
+            # Reset hook state for new diffusion loop
+            self.transformer._hook_registry.reset_hook("teacache")
 
         self.scheduler.set_begin_index(0)
         for i, t in enumerate(timesteps):
@@ -556,33 +560,41 @@ class QwenImagePipeline(
             timestep = t.expand(latents.shape[0]).to(device=latents.device, dtype=latents.dtype)
 
             # Forward pass for positive prompt (or unconditional if no CFG)
-            noise_pred = self.transformer(
-                hidden_states=latents,
-                timestep=timestep / 1000,
-                guidance=guidance,
-                cache_branch="positive" if teacache_enabled else None,
-                encoder_hidden_states_mask=prompt_embeds_mask,
-                encoder_hidden_states=prompt_embeds,
-                img_shapes=img_shapes,
-                txt_seq_lens=txt_seq_lens,
-                attention_kwargs=self.attention_kwargs,
-                return_dict=False,
-            )[0]
+            # cache_branch is passed to hook for CFG-aware state management
+            transformer_kwargs = {
+                "hidden_states": latents,
+                "timestep": timestep / 1000,
+                "guidance": guidance,
+                "encoder_hidden_states_mask": prompt_embeds_mask,
+                "encoder_hidden_states": prompt_embeds,
+                "img_shapes": img_shapes,
+                "txt_seq_lens": txt_seq_lens,
+                "attention_kwargs": self.attention_kwargs,
+                "return_dict": False,
+            }
+            if teacache_enabled:
+                transformer_kwargs["cache_branch"] = "positive"
+            
+            noise_pred = self.transformer(**transformer_kwargs)[0]
 
             # Forward pass for negative prompt (CFG)
+            # cache_branch is passed to hook for CFG-aware state management
             if do_true_cfg:
-                neg_noise_pred = self.transformer(
-                    hidden_states=latents,
-                    timestep=timestep / 1000,
-                    guidance=guidance,
-                    cache_branch="negative" if teacache_enabled else None,
-                    encoder_hidden_states_mask=negative_prompt_embeds_mask,
-                    encoder_hidden_states=negative_prompt_embeds,
-                    img_shapes=img_shapes,
-                    txt_seq_lens=negative_txt_seq_lens,
-                    attention_kwargs=self.attention_kwargs,
-                    return_dict=False,
-                )[0]
+                neg_transformer_kwargs = {
+                    "hidden_states": latents,
+                    "timestep": timestep / 1000,
+                    "guidance": guidance,
+                    "encoder_hidden_states_mask": negative_prompt_embeds_mask,
+                    "encoder_hidden_states": negative_prompt_embeds,
+                    "img_shapes": img_shapes,
+                    "txt_seq_lens": negative_txt_seq_lens,
+                    "attention_kwargs": self.attention_kwargs,
+                    "return_dict": False,
+                }
+                if teacache_enabled:
+                    neg_transformer_kwargs["cache_branch"] = "negative"
+                
+                neg_noise_pred = self.transformer(**neg_transformer_kwargs)[0]
                 comb_pred = neg_noise_pred + true_cfg_scale * (noise_pred - neg_noise_pred)
                 cond_norm = torch.norm(noise_pred, dim=-1, keepdim=True)
                 noise_norm = torch.norm(comb_pred, dim=-1, keepdim=True)
@@ -653,16 +665,17 @@ class QwenImagePipeline(
 
         # Enable TeaCache if requested
         if req.enable_teacache:
-            if not hasattr(self.transformer, "_teacache_wrapper") or self.transformer._teacache_wrapper is None:
+            # Check if hook is already registered
+            if not hasattr(self.transformer, "_hook_registry") or self.transformer._hook_registry.get_hook("teacache") is None:
                 teacache_config = TeaCacheConfig(
                     rel_l1_thresh=0.2,
                     num_inference_steps=num_inference_steps,
                     model_type="Qwen",
                 )
-                apply_teacache(self.transformer, teacache_config)
+                apply_teacache_hook(self.transformer, teacache_config)
             else:
-                # Reset state for new inference run (wrapper manages state internally)
-                self.transformer._teacache_wrapper.reset()
+                # Reset state for new inference run
+                self.transformer._hook_registry.reset_hook("teacache")
 
         if prompt is not None and isinstance(prompt, str):
             batch_size = 1
