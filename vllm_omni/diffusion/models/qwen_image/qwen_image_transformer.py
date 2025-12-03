@@ -558,6 +558,7 @@ class QwenImageTransformer2DModel(nn.Module):
         txt_seq_lens: Optional[list[int]] = None,
         guidance: torch.Tensor = None,  # TODO: this should probably be removed
         attention_kwargs: Optional[dict[str, Any]] = None,
+        cache_branch: Optional[str] = None,
         return_dict: bool = True,
     ) -> Union[torch.Tensor, Transformer2DModelOutput]:
         """
@@ -608,25 +609,44 @@ class QwenImageTransformer2DModel(nn.Module):
 
         image_rotary_emb = self.pos_embed(img_shapes, txt_seq_lens, device=hidden_states.device)
 
-        # TeaCache integration
-        teacache_enabled = hasattr(self, "_teacache_wrapper") and self._teacache_wrapper is not None
+        # ============================================================================
+        # TeaCache: Model-agnostic adaptive caching
+        # ============================================================================
+        # Use the reusable TeaCache wrapper for caching logic
+        # The wrapper handles CFG-aware state management and decision-making
+
+        teacache_enabled = (
+            cache_branch is not None
+            and hasattr(self, "_teacache_wrapper")
+            and self._teacache_wrapper is not None
+        )
+
         if teacache_enabled:
-            # Make caching decision
-            should_compute = self._teacache_wrapper.should_compute_full_transformer(
-                self, hidden_states, temb
+            # Ask the model-agnostic wrapper whether to compute or use cache
+            # This handles all the comparison logic, polynomial rescaling, and state tracking
+            should_compute, _ = self._teacache_wrapper.should_compute(
+                module=self,
+                hidden_states=hidden_states,
+                temb=temb,
+                branch=cache_branch
             )
 
-            if not should_compute and self._teacache_wrapper.get_cached_residual() is not None:
-                # Fast path: apply cached residuals
-                hidden_states = hidden_states + self._teacache_wrapper.get_cached_residual()
-                encoder_residual = self._teacache_wrapper.get_cached_encoder_residual()
-                if encoder_residual is not None:
-                    encoder_hidden_states = encoder_hidden_states + encoder_residual
+            if not should_compute:
+                # FAST PATH: Reuse cached transformer block outputs
+                # Get cached residuals from the wrapper
+                hid_res, enc_res = self._teacache_wrapper.get_cached_residuals(cache_branch)
+
+                # Apply cached residuals if shapes match
+                if hid_res is not None and hid_res.shape == hidden_states.shape:
+                    hidden_states = hidden_states + hid_res
+                if enc_res is not None and enc_res.shape == encoder_hidden_states.shape:
+                    encoder_hidden_states = encoder_hidden_states + enc_res
             else:
-                # Slow path: full computation
+                # SLOW PATH: Run full transformer computation
                 ori_hidden_states = hidden_states.clone()
                 ori_encoder_hidden_states = encoder_hidden_states.clone()
 
+                # Run all transformer blocks
                 for index_block, block in enumerate(self.transformer_blocks):
                     encoder_hidden_states, hidden_states = block(
                         hidden_states=hidden_states,
@@ -637,15 +657,17 @@ class QwenImageTransformer2DModel(nn.Module):
                         joint_attention_kwargs=attention_kwargs,
                     )
 
-                # Cache the residuals
-                residual = hidden_states - ori_hidden_states
+                # Cache the residuals for potential reuse next timestep
+                hidden_residual = hidden_states - ori_hidden_states
                 encoder_residual = encoder_hidden_states - ori_encoder_hidden_states
-                self._teacache_wrapper.cache_residual(residual, encoder_residual)
+                self._teacache_wrapper.cache_residuals(
+                    hidden_residual=hidden_residual,
+                    encoder_residual=encoder_residual,
+                    branch=cache_branch
+                )
 
-            # Increment counter
-            self._teacache_wrapper.increment_counter()
         else:
-            # Normal forward pass without TeaCache
+            # TeaCache disabled: Normal forward pass through all transformer blocks
             for index_block, block in enumerate(self.transformer_blocks):
                 encoder_hidden_states, hidden_states = block(
                     hidden_states=hidden_states,

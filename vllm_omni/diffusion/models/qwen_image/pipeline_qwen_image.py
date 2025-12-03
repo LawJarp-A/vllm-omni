@@ -540,22 +540,27 @@ class QwenImagePipeline(
         guidance,
         true_cfg_scale,
     ):
-        # Reset TeaCache state at the start of diffusion loop
-        if hasattr(self.transformer, "_teacache_wrapper") and self.transformer._teacache_wrapper is not None:
+        # Reset TeaCache state at the start of diffusion loop to ensure clean state
+        teacache_enabled = hasattr(self.transformer, "_teacache_wrapper") and self.transformer._teacache_wrapper is not None
+        if teacache_enabled:
+            # Use the wrapper's reset method to clear all cached states
             self.transformer._teacache_wrapper.reset()
-            self.transformer._teacache_wrapper.state.num_steps = len(timesteps)
 
         self.scheduler.set_begin_index(0)
         for i, t in enumerate(timesteps):
             if self.interrupt:
                 continue
             self._current_timestep = t
-            # broadcast to batch dimension and place on same device/dtype as latents
+
+            # Broadcast timestep to match batch size
             timestep = t.expand(latents.shape[0]).to(device=latents.device, dtype=latents.dtype)
+
+            # Forward pass for positive prompt (or unconditional if no CFG)
             noise_pred = self.transformer(
                 hidden_states=latents,
                 timestep=timestep / 1000,
                 guidance=guidance,
+                cache_branch="positive" if teacache_enabled else None,
                 encoder_hidden_states_mask=prompt_embeds_mask,
                 encoder_hidden_states=prompt_embeds,
                 img_shapes=img_shapes,
@@ -563,11 +568,14 @@ class QwenImagePipeline(
                 attention_kwargs=self.attention_kwargs,
                 return_dict=False,
             )[0]
+
+            # Forward pass for negative prompt (CFG)
             if do_true_cfg:
                 neg_noise_pred = self.transformer(
                     hidden_states=latents,
                     timestep=timestep / 1000,
                     guidance=guidance,
+                    cache_branch="negative" if teacache_enabled else None,
                     encoder_hidden_states_mask=negative_prompt_embeds_mask,
                     encoder_hidden_states=negative_prompt_embeds,
                     img_shapes=img_shapes,
@@ -647,15 +655,14 @@ class QwenImagePipeline(
         if req.enable_teacache:
             if not hasattr(self.transformer, "_teacache_wrapper") or self.transformer._teacache_wrapper is None:
                 teacache_config = TeaCacheConfig(
-                    rel_l1_thresh=0.2,  # Default: 1.5x speedup, minimal quality loss
+                    rel_l1_thresh=0.2,
                     num_inference_steps=num_inference_steps,
                     model_type="Qwen",
                 )
                 apply_teacache(self.transformer, teacache_config)
             else:
-                # Reset state for new inference run
+                # Reset state for new inference run (wrapper manages state internally)
                 self.transformer._teacache_wrapper.reset()
-                self.transformer._teacache_wrapper.state.num_steps = num_inference_steps
 
         if prompt is not None and isinstance(prompt, str):
             batch_size = 1

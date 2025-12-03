@@ -1,6 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
+"""
+TeaCache state management (legacy).
+
+Note: The current CFG-aware implementation manages state directly in the transformer
+using branch-specific dictionaries (_qwen_teacache_states). This module is kept for
+backward compatibility and potential future use.
+"""
+
 from typing import Optional
 
 import torch
@@ -8,22 +16,20 @@ import torch
 
 class TeaCacheState:
     """
-    State management for TeaCache.
+    Legacy state management for TeaCache.
 
-    Tracks caching state across diffusion timesteps, managing counters, accumulated
-    distances, and cached values needed for the TeaCache algorithm.
+    Note: Not currently used by the CFG-aware Qwen implementation, which manages
+    state directly with separate positive/negative branches.
 
-    Attributes:
-        cnt: Current timestep counter, incremented with each forward pass.
-        num_steps: Total number of inference steps for the current run.
-        accumulated_rel_l1_distance: Running accumulator for rescaled L1 distances.
-        previous_modulated_input: Modulated input from previous timestep.
-        previous_residual: Cached residual (output - input) from previous timestep.
+    This class is kept for backward compatibility and non-CFG implementations.
     """
 
     def __init__(self):
+        # Timestep tracking
         self.cnt = 0
         self.num_steps = 0
+
+        # Caching state
         self.accumulated_rel_l1_distance = 0.0
         self.previous_modulated_input: Optional[torch.Tensor] = None
         self.previous_residual: Optional[torch.Tensor] = None
