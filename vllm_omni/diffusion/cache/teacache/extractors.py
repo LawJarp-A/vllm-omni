@@ -53,12 +53,11 @@ def extract_qwen_modulated_input(
 
 
 # Registry for model-specific extractors
-# Key can be: model class name, model type string, or partial class name match
+# Key: pipeline/model architecture name
 EXTRACTOR_REGISTRY: dict[str, Callable] = {
+    "QwenImagePipeline": extract_qwen_modulated_input,
     "qwen": extract_qwen_modulated_input,
     "Qwen": extract_qwen_modulated_input,
-    "QwenImageTransformer2DModel": extract_qwen_modulated_input,
-    "QwenImage": extract_qwen_modulated_input,
 }
 
 

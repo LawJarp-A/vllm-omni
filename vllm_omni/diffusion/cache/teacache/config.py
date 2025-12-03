@@ -34,15 +34,13 @@ class TeaCacheConfig:
             - 0.6: ~2.0x speedup with noticeable quality loss
         coefficients: Polynomial coefficients for rescaling L1 distance. If None, uses
             model-specific defaults.
-        num_inference_steps: Total number of inference steps. Used to ensure first and
-            last timesteps are always computed (never cached).
-        model_type: Model type for auto-detecting coefficients. Defaults to "Qwen".
+        model_type: Pipeline architecture type for auto-detecting coefficients and extractors.
+            Defaults to "QwenImagePipeline".
     """
 
     rel_l1_thresh: float = 0.2
     coefficients: Optional[List[float]] = None
-    num_inference_steps: int = 50
-    model_type: str = "Qwen"
+    model_type: str = "QwenImagePipeline"
 
     def __post_init__(self):
         """Validate and set default coefficients."""

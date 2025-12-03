@@ -669,8 +669,7 @@ class QwenImagePipeline(
             if not hasattr(self.transformer, "_hook_registry") or self.transformer._hook_registry.get_hook("teacache") is None:
                 teacache_config = TeaCacheConfig(
                     rel_l1_thresh=0.2,
-                    num_inference_steps=num_inference_steps,
-                    model_type="Qwen",
+                    model_type="QwenImagePipeline",
                 )
                 apply_teacache_hook(self.transformer, teacache_config)
             else:
