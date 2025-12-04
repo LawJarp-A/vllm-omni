@@ -20,7 +20,11 @@ from vllm_omni.diffusion.cache.registry import (
     get_cache_adapter,
     register_cache_adapter,
 )
-from vllm_omni.diffusion.cache.teacache import TeaCacheConfig, apply_teacache_hook
+from vllm_omni.diffusion.cache.teacache import (
+    CacheContext,
+    TeaCacheConfig,
+    apply_teacache_hook,
+)
 
 # Import teacache adapter to trigger registration
 from vllm_omni.diffusion.cache.teacache.adapter import TeaCacheAdapter  # noqa: F401
@@ -29,6 +33,7 @@ __all__ = [
     "CacheAdapter",
     "CacheType",
     "TeaCacheConfig",
+    "CacheContext",
     "setup_cache",
     "get_cache_adapter",
     "register_cache_adapter",

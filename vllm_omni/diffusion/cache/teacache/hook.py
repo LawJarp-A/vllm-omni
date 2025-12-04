@@ -64,140 +64,88 @@ class TeaCacheHook(ModelHook):
 
     def new_forward(self, module, *args: Any, **kwargs: Any):
         """
-        Route to model-specific forward handler based on module type.
+        Generic forward handler that works for ANY model.
 
-        This allows the hook to support multiple model architectures without
-        changing the hook registry system.
-        """
-        module_class_name = module.__class__.__name__
+        This method is completely model-agnostic. All model-specific logic
+        is encapsulated in the extractor function that returns a CacheContext.
 
-        if "QwenImage" in module_class_name:
-            return self._handle_qwen_forward(module, *args, **kwargs)
-        else:
-            # For unsupported models, fall back to original forward
-            # This allows graceful degradation
-            raise NotImplementedError(
-                f"TeaCache hook does not support model type: {module_class_name}. "
-                f"Please add a handler method for this model."
-            )
+        The extractor does:
+        - Model-specific preprocessing
+        - Extraction of modulated input for cache decision
+        - Providing transformer execution callable
+        - Providing postprocessing callable
 
-    def _handle_qwen_forward(
-        self,
-        module,
-        hidden_states: torch.Tensor,
-        encoder_hidden_states: torch.Tensor,
-        encoder_hidden_states_mask: torch.Tensor,
-        timestep: Union[torch.Tensor, float, int],
-        img_shapes: torch.Tensor,
-        txt_seq_lens: torch.Tensor,
-        guidance: Optional[torch.Tensor] = None,
-        attention_kwargs: Optional[dict[str, Any]] = None,
-        cache_branch: Optional[str] = None,
-        return_dict: bool = True,
-    ) -> Union[torch.Tensor, Transformer2DModelOutput]:
-        """
-        Handle QwenImageTransformer2DModel forward pass with TeaCache.
-
-        This method completely replicates the model's forward pass while adding
-        adaptive caching logic. The original model code remains untouched.
+        This hook does:
+        - CFG-aware state management
+        - Cache decision logic (generic)
+        - Residual caching and reuse
 
         Args:
-            module: The QwenImageTransformer2DModel instance
-            hidden_states: Input latent tensor
-            encoder_hidden_states: Text encoder outputs
-            encoder_hidden_states_mask: Mask for text encoder
-            timestep: Current diffusion timestep
-            img_shapes: Image shapes for position embedding
-            txt_seq_lens: Text sequence lengths
-            guidance: Optional guidance scale for CFG
-            attention_kwargs: Additional attention arguments
-            cache_branch: CFG branch identifier ("positive", "negative", or None)
-            return_dict: Whether to return a dict or tuple
+            module: Transformer module (any architecture)
+            *args: Positional arguments for model forward
+            **kwargs: Keyword arguments for model forward
 
         Returns:
-            Transformer2DModelOutput or tuple with denoised output
+            Model output (format depends on model)
         """
-        # ============================================================================
-        # PREPROCESSING (same as original forward)
-        # ============================================================================
-        hidden_states = module.img_in(hidden_states)
-
-        # Ensure timestep tensor is on the same device and dtype as hidden_states
-        timestep = timestep.to(device=hidden_states.device, dtype=hidden_states.dtype)
-        encoder_hidden_states = module.txt_norm(encoder_hidden_states)
-        encoder_hidden_states = module.txt_in(encoder_hidden_states)
-
-        if guidance is not None:
-            guidance = guidance.to(hidden_states.dtype) * 1000
-
-        temb = (
-            module.time_text_embed(timestep, hidden_states)
-            if guidance is None
-            else module.time_text_embed(timestep, guidance, hidden_states)
-        )
-
-        image_rotary_emb = module.pos_embed(img_shapes, txt_seq_lens, device=hidden_states.device)
+        # Get model-specific context from extractor
+        # The extractor encapsulates ALL model-specific logic
+        ctx = self.extractor_fn(module, *args, **kwargs)
 
         # ============================================================================
-        # TEACACHE LOGIC (hook-based, model-agnostic)
+        # GENERIC CACHING LOGIC (works for all models)
         # ============================================================================
         # Set context based on CFG branch for separate state tracking
-        branch = cache_branch if cache_branch is not None else "default"
-        context_name = f"teacache_{branch}"
+        cache_branch = kwargs.get('cache_branch', 'default')
+        context_name = f"teacache_{cache_branch}"
         self.state_manager.set_context(context_name)
         state = self.state_manager.get_state()
 
-        # Extract modulated input from first transformer block
-        inp = hidden_states.clone()
-        temb_clone = temb.clone()
-        modulated_inp = self.extractor_fn(module, inp, temb_clone)
-
         # Decide whether to compute or cache based on modulated input similarity
-        should_compute = self._should_compute_full_transformer(state, modulated_inp)
+        should_compute = self._should_compute_full_transformer(state, ctx.modulated_input)
 
         if not should_compute and state.previous_residual is not None:
             # ============================================================================
             # FAST PATH: Reuse cached residuals
             # ============================================================================
-            hidden_states = hidden_states + state.previous_residual
-            if state.previous_residual_encoder is not None:
-                encoder_hidden_states = encoder_hidden_states + state.previous_residual_encoder
+            ctx.hidden_states = ctx.hidden_states + state.previous_residual
+            if state.previous_residual_encoder is not None and ctx.encoder_hidden_states is not None:
+                ctx.encoder_hidden_states = ctx.encoder_hidden_states + state.previous_residual_encoder
+            output = ctx.hidden_states
         else:
             # ============================================================================
             # SLOW PATH: Full transformer computation
             # ============================================================================
-            ori_hidden_states = hidden_states.clone()
-            ori_encoder_hidden_states = encoder_hidden_states.clone()
+            ori_hidden_states = ctx.hidden_states.clone()
+            ori_encoder_hidden_states = (
+                ctx.encoder_hidden_states.clone() if ctx.encoder_hidden_states is not None else None
+            )
 
-            # Run all transformer blocks
-            for block in module.transformer_blocks:
-                encoder_hidden_states, hidden_states = block(
-                    hidden_states=hidden_states,
-                    encoder_hidden_states=encoder_hidden_states,
-                    encoder_hidden_states_mask=encoder_hidden_states_mask,
-                    temb=temb,
-                    image_rotary_emb=image_rotary_emb,
-                    joint_attention_kwargs=attention_kwargs,
-                )
+            # Run transformer blocks using model-specific callable
+            outputs = ctx.run_transformer_blocks()
+
+            # Update context with outputs
+            ctx.hidden_states = outputs[0]
+            if len(outputs) > 1 and ctx.encoder_hidden_states is not None:
+                ctx.encoder_hidden_states = outputs[1]
 
             # Cache residuals for next timestep
-            state.previous_residual = (hidden_states - ori_hidden_states).detach()
-            state.previous_residual_encoder = (encoder_hidden_states - ori_encoder_hidden_states).detach()
+            state.previous_residual = (ctx.hidden_states - ori_hidden_states).detach()
+            if ori_encoder_hidden_states is not None:
+                state.previous_residual_encoder = (
+                    ctx.encoder_hidden_states - ori_encoder_hidden_states
+                ).detach()
+
+            output = ctx.hidden_states
 
         # Update state
-        state.previous_modulated_input = modulated_inp.detach()
+        state.previous_modulated_input = ctx.modulated_input.detach()
         state.cnt += 1
 
         # ============================================================================
-        # POSTPROCESSING (same as original forward)
+        # POSTPROCESSING (model-specific, via callable)
         # ============================================================================
-        hidden_states = module.norm_out(hidden_states, temb)
-        output = module.proj_out(hidden_states)
-
-        if not return_dict:
-            return (output,)
-
-        return Transformer2DModelOutput(sample=output)
+        return ctx.postprocess(output)
 
     def _should_compute_full_transformer(
         self, state: TeaCacheState, modulated_inp: torch.Tensor
