@@ -252,18 +252,16 @@ def extract_qwen_context(
 
 
 # Registry for model-specific extractors
-# Key: Transformer module class name (what module.__class__.__name__ returns)
+# Key: Pipeline class name (from OmniDiffusionConfig.model_class_name)
 # Value: extractor function with signature (module, *args, **kwargs) -> CacheContext
 #
-# Note: get_extractor() receives the transformer module (not pipeline) and uses
-# its class name to lookup the extractor. Use the full transformer class name as
-# the primary key, with common aliases for convenience.
+# Note: Use the exact pipeline class name as specified in OmniDiffusionConfig.model_class_name
+# to ensure consistent lookup without substring matching.
 EXTRACTOR_REGISTRY: dict[str, Callable] = {
-    # Primary key: Full transformer class name
-    "QwenImageTransformer2DModel": extract_qwen_context,
-    # Aliases for convenience (matched via substring matching)
-    "QwenImagePipeline": extract_qwen_context,  # Pipeline class name
-    "QwenImage": extract_qwen_context,  # Short form
+    "QwenImagePipeline": extract_qwen_context,
+    # Future models:
+    # "FluxPipeline": extract_flux_context,
+    # "CogVideoXPipeline": extract_cogvideox_context,
 }
 
 
@@ -300,16 +298,16 @@ def register_extractor(model_identifier: str, extractor_fn: Callable) -> None:
     EXTRACTOR_REGISTRY[model_identifier] = extractor_fn
 
 
-def get_extractor(model_or_type: Union[nn.Module, str]) -> Callable:
+def get_extractor(model_type: str) -> Callable:
     """
-    Get extractor function for given model or model type.
+    Get extractor function for given model type.
 
-    This function resolves the appropriate extractor based on:
-    1. Explicit model type string (exact match)
-    2. Module class name (substring match for flexibility)
+    This function looks up the extractor based on the exact model_type string,
+    which should match the pipeline class name from OmniDiffusionConfig.model_class_name.
 
     Args:
-        model_or_type: Either a torch.nn.Module instance or a model type string
+        model_type: Model type string (e.g., "QwenImagePipeline", "FluxPipeline")
+                   Must exactly match a key in EXTRACTOR_REGISTRY.
 
     Returns:
         Extractor function with signature (module, *args, **kwargs) -> CacheContext
@@ -318,33 +316,18 @@ def get_extractor(model_or_type: Union[nn.Module, str]) -> Callable:
         ValueError: If model type not found in registry
 
     Example:
-        >>> # Auto-detect from module
-        >>> extractor = get_extractor(transformer)
+        >>> # Get extractor for Qwen model
+        >>> extractor = get_extractor("QwenImagePipeline")
         >>> ctx = extractor(transformer, hidden_states, encoder_hidden_states, timestep, ...)
-        >>>
-        >>> # Explicit type
-        >>> extractor = get_extractor("Qwen")
     """
-    # Resolve model type string
-    if isinstance(model_or_type, nn.Module):
-        model_type = model_or_type.__class__.__name__
-    else:
-        model_type = model_or_type
-
-    # Try exact match first
+    # Direct lookup - no substring matching
     if model_type in EXTRACTOR_REGISTRY:
         return EXTRACTOR_REGISTRY[model_type]
-
-    # Try substring match for flexibility
-    # e.g., "QwenImage" will match "QwenImageTransformer2DModel"
-    for key in EXTRACTOR_REGISTRY:
-        if key in model_type:
-            return EXTRACTOR_REGISTRY[key]
 
     # No match found
     available_types = list(EXTRACTOR_REGISTRY.keys())
     raise ValueError(
-        f"Unknown model type: {model_type}. "
+        f"Unknown model type: '{model_type}'. "
         f"Available types: {available_types}\n"
         f"To add support for a new model, use register_extractor() or add to EXTRACTOR_REGISTRY."
     )

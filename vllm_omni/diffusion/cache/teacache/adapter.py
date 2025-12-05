@@ -46,9 +46,12 @@ class TeaCacheAdapter(CacheAdapter):
         Args:
             transformer: Transformer module to apply TeaCache to
         """
-        # Set default model_type if not provided
+        # Validate that model_type is provided
         if "model_type" not in self.config:
-            self.config["model_type"] = "QwenImagePipeline"
+            raise ValueError(
+                "model_type must be provided in cache_config. "
+                "Should be set to OmniDiffusionConfig.model_class_name (e.g., 'QwenImagePipeline')"
+            )
 
         # Create TeaCacheConfig from dict
         try:
@@ -56,7 +59,8 @@ class TeaCacheAdapter(CacheAdapter):
         except Exception as e:
             logger.error(f"Failed to create TeaCacheConfig: {e}")
             raise ValueError(
-                f"Invalid TeaCache configuration: {e}. Expected keys: rel_l1_thresh, model_type, coefficients"
+                f"Invalid TeaCache configuration: {e}. "
+                f"Expected keys: rel_l1_thresh, model_type (pipeline class name), coefficients (optional)"
             )
 
         # Apply hook to transformer
