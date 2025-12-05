@@ -9,7 +9,6 @@ registration and instantiation of different cache types (TeaCache, DeepCache, et
 """
 
 from enum import Enum
-from typing import Dict, Type
 
 from vllm.logger import init_logger
 
@@ -29,10 +28,10 @@ class CacheType(Enum):
 
 
 # Global registry mapping cache types to adapter classes
-CACHE_ADAPTER_REGISTRY: Dict[CacheType, Type[CacheAdapter]] = {}
+CACHE_ADAPTER_REGISTRY: dict[CacheType, type[CacheAdapter]] = {}
 
 
-def register_cache_adapter(cache_type: CacheType, adapter_class: Type[CacheAdapter]) -> None:
+def register_cache_adapter(cache_type: CacheType, adapter_class: type[CacheAdapter]) -> None:
     """
     Register a cache adapter class for a given cache type.
 
@@ -53,7 +52,7 @@ def register_cache_adapter(cache_type: CacheType, adapter_class: Type[CacheAdapt
     logger.debug(f"Registered cache adapter: {cache_type.value} -> {adapter_class.__name__}")
 
 
-def get_cache_adapter(cache_type: str, config: Dict) -> CacheAdapter:
+def get_cache_adapter(cache_type: str, config: dict) -> CacheAdapter:
     """
     Factory function to get cache adapter instance.
 
@@ -82,23 +81,16 @@ def get_cache_adapter(cache_type: str, config: Dict) -> CacheAdapter:
         cache_enum = CacheType(cache_type_str)
     except ValueError:
         available = [ct.value for ct in CacheType if ct != CacheType.NONE]
-        raise ValueError(
-            f"Unknown cache type: '{cache_type}'. "
-            f"Available types: {available}"
-        )
+        raise ValueError(f"Unknown cache type: '{cache_type}'. Available types: {available}")
 
     # Check if it's the special "none" case
     if cache_enum == CacheType.NONE:
-        raise ValueError(
-            "Cannot instantiate adapter for cache_type='none'. "
-            "Use setup_cache() which handles this case."
-        )
+        raise ValueError("Cannot instantiate adapter for cache_type='none'. Use setup_cache() which handles this case.")
 
     # Lookup in registry
     if cache_enum not in CACHE_ADAPTER_REGISTRY:
         raise ValueError(
-            f"Cache type '{cache_type}' is not registered. "
-            f"Registered types: {list(CACHE_ADAPTER_REGISTRY.keys())}"
+            f"Cache type '{cache_type}' is not registered. Registered types: {list(CACHE_ADAPTER_REGISTRY.keys())}"
         )
 
     adapter_class = CACHE_ADAPTER_REGISTRY[cache_enum]

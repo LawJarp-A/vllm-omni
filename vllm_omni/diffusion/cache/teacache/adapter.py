@@ -8,8 +8,6 @@ This module provides the TeaCache adapter that implements the CacheAdapter
 interface using the hooks-based TeaCache system.
 """
 
-from typing import Any, Dict
-
 from vllm.logger import init_logger
 
 from vllm_omni.diffusion.cache.base import CacheAdapter
@@ -58,8 +56,7 @@ class TeaCacheAdapter(CacheAdapter):
         except Exception as e:
             logger.error(f"Failed to create TeaCacheConfig: {e}")
             raise ValueError(
-                f"Invalid TeaCache configuration: {e}. "
-                f"Expected keys: rel_l1_thresh, model_type, coefficients"
+                f"Invalid TeaCache configuration: {e}. Expected keys: rel_l1_thresh, model_type, coefficients"
             )
 
         # Apply hook to transformer

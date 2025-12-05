@@ -10,7 +10,7 @@ Cache adapters provide a unified interface for applying different caching strate
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from typing import Any
 
 
 class CacheAdapter(ABC):
@@ -25,7 +25,7 @@ class CacheAdapter(ABC):
         config: Dictionary containing cache-specific configuration parameters
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         """
         Initialize cache adapter with configuration.
 

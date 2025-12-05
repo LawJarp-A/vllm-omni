@@ -99,4 +99,3 @@ class HookRegistry:
         hook = self._hooks.get(name)
         if hook is not None:
             hook.reset_state(self.module)
-
