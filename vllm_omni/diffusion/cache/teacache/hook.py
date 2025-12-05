@@ -51,9 +51,10 @@ class TeaCacheHook(ModelHook):
         self.extractor_fn = None
 
     def initialize_hook(self, module):
-        """Initialize hook with auto-detected extractor and model type."""
-        # Auto-detect extractor function for this model
-        self.extractor_fn = get_extractor(module)
+        """Initialize hook with extractor from config model type."""
+        # Get extractor function based on model_type from config
+        # model_type should be the pipeline class name (e.g., "QwenImagePipeline")
+        self.extractor_fn = get_extractor(self.config.model_type)
 
         # Set default context
         self.state_manager.set_context("teacache")
