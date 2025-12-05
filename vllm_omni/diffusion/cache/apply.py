@@ -9,7 +9,7 @@ on transformer models. It handles cache type selection, adapter instantiation,
 and application to the model.
 """
 
-from typing import Dict, Optional
+from typing import Optional
 
 from vllm.logger import init_logger
 
@@ -22,7 +22,7 @@ logger = init_logger(__name__)
 def setup_cache(
     transformer,
     cache_type: str = "none",
-    cache_config: Optional[Dict] = None,
+    cache_config: Optional[dict] = None,
 ) -> Optional[CacheAdapter]:
     """
     Setup cache adapter for transformer (one-time initialization).

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Hook-based TeaCache implementation for vLLM-Omni.
 
@@ -9,12 +7,12 @@ code in model definitions. Model developers only need to add an extractor functi
 to support new models.
 """
 
-from typing import Any, Optional, Union
+from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
 import torch
-
-from diffusers.models.modeling_outputs import Transformer2DModelOutput
 
 from vllm_omni.diffusion.cache.teacache.config import TeaCacheConfig
 from vllm_omni.diffusion.cache.teacache.extractors import get_extractor
@@ -96,7 +94,7 @@ class TeaCacheHook(ModelHook):
         # GENERIC CACHING LOGIC (works for all models)
         # ============================================================================
         # Set context based on CFG branch for separate state tracking
-        cache_branch = kwargs.get('cache_branch', 'default')
+        cache_branch = kwargs.get("cache_branch", "default")
         context_name = f"teacache_{cache_branch}"
         self.state_manager.set_context(context_name)
         state = self.state_manager.get_state()
@@ -132,9 +130,7 @@ class TeaCacheHook(ModelHook):
             # Cache residuals for next timestep
             state.previous_residual = (ctx.hidden_states - ori_hidden_states).detach()
             if ori_encoder_hidden_states is not None:
-                state.previous_residual_encoder = (
-                    ctx.encoder_hidden_states - ori_encoder_hidden_states
-                ).detach()
+                state.previous_residual_encoder = (ctx.encoder_hidden_states - ori_encoder_hidden_states).detach()
 
             output = ctx.hidden_states
 
@@ -147,9 +143,7 @@ class TeaCacheHook(ModelHook):
         # ============================================================================
         return ctx.postprocess(output)
 
-    def _should_compute_full_transformer(
-        self, state: TeaCacheState, modulated_inp: torch.Tensor
-    ) -> bool:
+    def _should_compute_full_transformer(self, state: TeaCacheState, modulated_inp: torch.Tensor) -> bool:
         """
         Determine whether to compute full transformer or reuse cached residual.
 

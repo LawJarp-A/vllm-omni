@@ -272,9 +272,7 @@ class QwenImagePipeline(
         from vllm_omni.diffusion.cache.apply import setup_cache
 
         self._cache_adapter = setup_cache(
-            self.transformer,
-            cache_type=od_config.cache_adapter,
-            cache_config=od_config.cache_config
+            self.transformer, cache_type=od_config.cache_adapter, cache_config=od_config.cache_config
         )
 
         self.stage = None

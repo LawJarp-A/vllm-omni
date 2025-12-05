@@ -82,6 +82,7 @@ class CacheContext:
             Use this for models that need to pass additional context beyond
             the standard fields.
     """
+
     modulated_input: torch.Tensor
     hidden_states: torch.Tensor
     encoder_hidden_states: torch.Tensor | None
@@ -104,21 +105,14 @@ class CacheContext:
         """
         # Validate tensor fields
         if not isinstance(self.modulated_input, torch.Tensor):
-            raise TypeError(
-                f"modulated_input must be torch.Tensor, got {type(self.modulated_input)}"
-            )
+            raise TypeError(f"modulated_input must be torch.Tensor, got {type(self.modulated_input)}")
 
         if not isinstance(self.hidden_states, torch.Tensor):
-            raise TypeError(
-                f"hidden_states must be torch.Tensor, got {type(self.hidden_states)}"
-            )
+            raise TypeError(f"hidden_states must be torch.Tensor, got {type(self.hidden_states)}")
 
-        if self.encoder_hidden_states is not None and not isinstance(
-            self.encoder_hidden_states, torch.Tensor
-        ):
+        if self.encoder_hidden_states is not None and not isinstance(self.encoder_hidden_states, torch.Tensor):
             raise TypeError(
-                f"encoder_hidden_states must be torch.Tensor or None, "
-                f"got {type(self.encoder_hidden_states)}"
+                f"encoder_hidden_states must be torch.Tensor or None, got {type(self.encoder_hidden_states)}"
             )
 
         if not isinstance(self.temb, torch.Tensor):
@@ -126,9 +120,7 @@ class CacheContext:
 
         # Validate callables
         if not callable(self.run_transformer_blocks):
-            raise TypeError(
-                f"run_transformer_blocks must be callable, got {type(self.run_transformer_blocks)}"
-            )
+            raise TypeError(f"run_transformer_blocks must be callable, got {type(self.run_transformer_blocks)}")
 
         if not callable(self.postprocess):
             raise TypeError(f"postprocess must be callable, got {type(self.postprocess)}")
@@ -159,7 +151,7 @@ def extract_qwen_context(
     txt_seq_lens: torch.Tensor,
     guidance: torch.Tensor | None = None,
     attention_kwargs: dict[str, Any] | None = None,
-    **kwargs
+    **kwargs,
 ) -> CacheContext:
     """
     Extract cache context for QwenImageTransformer2DModel.
@@ -236,7 +228,7 @@ def extract_qwen_context(
     # ============================================================================
     # DEFINE POSTPROCESSING (Qwen-specific)
     # ============================================================================
-    return_dict = kwargs.get('return_dict', True)
+    return_dict = kwargs.get("return_dict", True)
 
     def postprocess(h):
         """Apply Qwen-specific output postprocessing."""
@@ -260,13 +252,18 @@ def extract_qwen_context(
 
 
 # Registry for model-specific extractors
-# Key: pipeline/model architecture name
+# Key: Transformer module class name (what module.__class__.__name__ returns)
 # Value: extractor function with signature (module, *args, **kwargs) -> CacheContext
+#
+# Note: get_extractor() receives the transformer module (not pipeline) and uses
+# its class name to lookup the extractor. Use the full transformer class name as
+# the primary key, with common aliases for convenience.
 EXTRACTOR_REGISTRY: dict[str, Callable] = {
-    "QwenImagePipeline": extract_qwen_context,
-    "QwenImage": extract_qwen_context,  # Matches QwenImageTransformer2DModel
-    "qwen": extract_qwen_context,
-    "Qwen": extract_qwen_context,
+    # Primary key: Full transformer class name
+    "QwenImageTransformer2DModel": extract_qwen_context,
+    # Aliases for convenience (matched via substring matching)
+    "QwenImagePipeline": extract_qwen_context,  # Pipeline class name
+    "QwenImage": extract_qwen_context,  # Short form
 }
 
 

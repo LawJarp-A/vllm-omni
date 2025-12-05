@@ -10,7 +10,6 @@ from typing import Optional
 _MODEL_COEFFICIENTS = {
     # FLUX model coefficients from TeaCache paper
     "Flux": [4.98651651e02, -2.83781631e02, 5.58554382e01, -3.82021401e00, 2.64230861e-01],
-
     # Qwen-Image model coefficients from ComfyUI-TeaCache
     # Tuned specifically for Qwen's dual-stream transformer architecture
     "Qwen": [-4.50000000e02, 2.80000000e02, -4.50000000e01, 3.20000000e00, -2.00000000e-02],
@@ -48,11 +47,7 @@ class TeaCacheConfig:
             raise ValueError(f"rel_l1_thresh must be positive, got {self.rel_l1_thresh}")
 
         if self.coefficients is None:
-            self.coefficients = _MODEL_COEFFICIENTS.get(
-                self.model_type, _MODEL_COEFFICIENTS["Flux"]
-            )
+            self.coefficients = _MODEL_COEFFICIENTS.get(self.model_type, _MODEL_COEFFICIENTS["Flux"])
 
         if len(self.coefficients) != 5:
-            raise ValueError(
-                f"coefficients must contain exactly 5 elements, got {len(self.coefficients)}"
-            )
+            raise ValueError(f"coefficients must contain exactly 5 elements, got {len(self.coefficients)}")
