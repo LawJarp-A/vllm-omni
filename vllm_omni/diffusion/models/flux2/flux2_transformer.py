@@ -6,13 +6,15 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
-from diffusers.models.attention_dispatch import dispatch_attention_fn
 from diffusers.models.embeddings import TimestepEmbedding, Timesteps, apply_rotary_emb, get_1d_rotary_pos_embed
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.normalization import AdaLayerNormContinuous
 from vllm.logger import init_logger
 from vllm.model_executor.layers.layernorm import RMSNorm
 from vllm.model_executor.layers.linear import QKVParallelLinear, ReplicatedLinear
+
+from vllm_omni.diffusion.attention.backends.abstract import AttentionMetadata
+from vllm_omni.diffusion.attention.layer import Attention
 
 logger = init_logger(__name__)
 
@@ -118,6 +120,14 @@ class Flux2Attention(nn.Module):
             )
             self.to_add_out = ReplicatedLinear(self.inner_dim, query_dim, bias=out_bias)
 
+        # Unified attention layer
+        self.attn = Attention(
+            num_heads=heads,
+            head_size=dim_head,
+            softmax_scale=1.0 / (dim_head**0.5),
+            causal=False,
+        )
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -168,24 +178,19 @@ class Flux2Attention(nn.Module):
             joint_k = torch.cat([txt_k, img_k], dim=1)
             joint_v = torch.cat([txt_v, img_v], dim=1)
 
-            # Transpose for attention: [B, heads, seq_len, head_dim]
-            joint_q = joint_q.transpose(1, 2)
-            joint_k = joint_k.transpose(1, 2)
-            joint_v = joint_v.transpose(1, 2)
+            # Prepare attention metadata
+            attn_metadata = AttentionMetadata(attn_mask=attention_mask) if attention_mask is not None else None
 
-            # Attention
-            joint_attn = dispatch_attention_fn(
+            # Attention - keep tensors in [B, seq_len, heads, head_dim] format
+            joint_attn = self.attn(
                 joint_q,
                 joint_k,
                 joint_v,
-                attn_mask=attention_mask,
-                dropout_p=0.0,
-                is_causal=False,
+                attn_metadata=attn_metadata,
             )
 
-            # Transpose back and flatten
-            joint_attn = joint_attn.transpose(1, 2)  # [B, txt_len+img_len, heads, head_dim]
-            joint_attn = joint_attn.flatten(-2)  # [B, txt_len+img_len, inner_dim]
+            # Flatten head dimensions: [B, txt_len+img_len, heads, head_dim] -> [B, txt_len+img_len, inner_dim]
+            joint_attn = joint_attn.flatten(-2)
 
             # Split back to text and image
             txt_attn = joint_attn[:, :txt_seq_len, :]
@@ -203,21 +208,19 @@ class Flux2Attention(nn.Module):
                 img_q = apply_rotary_emb(img_q, image_rotary_emb, sequence_dim=1)
                 img_k = apply_rotary_emb(img_k, image_rotary_emb, sequence_dim=1)
 
-            # Transpose for attention
-            img_q = img_q.transpose(1, 2)
-            img_k = img_k.transpose(1, 2)
-            img_v = img_v.transpose(1, 2)
+            # Prepare attention metadata
+            attn_metadata = AttentionMetadata(attn_mask=attention_mask) if attention_mask is not None else None
 
-            img_attn = dispatch_attention_fn(
+            # Attention - keep tensors in [B, seq_len, heads, head_dim] format
+            img_attn = self.attn(
                 img_q,
                 img_k,
                 img_v,
-                attn_mask=attention_mask,
-                dropout_p=0.0,
-                is_causal=False,
+                attn_metadata=attn_metadata,
             )
 
-            img_attn = img_attn.transpose(1, 2).flatten(-2)
+            # Flatten head dimensions
+            img_attn = img_attn.flatten(-2)
             img_out, _ = self.to_out[0](img_attn)
             img_out = self.to_out[1](img_out)
 
@@ -265,6 +268,14 @@ class Flux2ParallelSelfAttention(nn.Module):
         self.norm_q = RMSNorm(dim_head, eps=eps)
         self.norm_k = RMSNorm(dim_head, eps=eps)
 
+        # Unified attention layer
+        self.attn = Attention(
+            num_heads=heads,
+            head_size=dim_head,
+            softmax_scale=1.0 / (dim_head**0.5),
+            causal=False,
+        )
+
         # Fused attention output projection + MLP output projection
         self.to_out = nn.Linear(self.inner_dim + self.mlp_hidden_dim, self.out_dim, bias=out_bias)
 
@@ -295,20 +306,18 @@ class Flux2ParallelSelfAttention(nn.Module):
             query = apply_rotary_emb(query, image_rotary_emb, sequence_dim=1)
             key = apply_rotary_emb(key, image_rotary_emb, sequence_dim=1)
 
-        # Transpose for attention
-        query = query.transpose(1, 2)
-        key = key.transpose(1, 2)
-        value = value.transpose(1, 2)
+        # Prepare attention metadata
+        attn_metadata = AttentionMetadata(attn_mask=attention_mask) if attention_mask is not None else None
 
-        hidden_states_attn = dispatch_attention_fn(
+        # Attention - keep tensors in [B, seq_len, heads, head_dim] format
+        hidden_states_attn = self.attn(
             query,
             key,
             value,
-            attn_mask=attention_mask,
-            dropout_p=0.0,
-            is_causal=False,
+            attn_metadata=attn_metadata,
         )
-        hidden_states_attn = hidden_states_attn.transpose(1, 2).flatten(-2)
+        # Flatten head dimensions
+        hidden_states_attn = hidden_states_attn.flatten(-2)
         hidden_states_attn = hidden_states_attn.to(query.dtype)
 
         # Handle the feedforward (FF) logic
