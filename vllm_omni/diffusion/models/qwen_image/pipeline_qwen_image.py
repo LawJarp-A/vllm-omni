@@ -268,13 +268,6 @@ class QwenImagePipeline(
             )
             logger.info("Loaded Qwen-Image tokenizer successfully.")
 
-        # Apply cache adapter (NEW - replaces per-request enable_teacache)
-        from vllm_omni.diffusion.cache.apply import setup_cache
-
-        self._cache_adapter = setup_cache(
-            self.transformer, cache_type=od_config.cache_adapter, cache_config=od_config.cache_config
-        )
-
         self.stage = None
 
         self.vae_scale_factor = 2 ** len(self.vae.temperal_downsample) if getattr(self, "vae", None) else 8
