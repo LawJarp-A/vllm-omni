@@ -170,6 +170,7 @@ def extract_qwen_context(
         txt_seq_lens: Text sequence lengths
         guidance: Optional guidance scale for CFG
         attention_kwargs: Additional attention arguments
+        **kwargs: Additional keyword arguments ignored by this extractor
 
     Returns:
         CacheContext with all information needed for generic caching

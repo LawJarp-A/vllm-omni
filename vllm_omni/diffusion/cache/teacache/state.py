@@ -21,6 +21,7 @@ class TeaCacheState:
     """
 
     def __init__(self):
+        """Initialize empty TeaCache state."""
         # Timestep tracking
         self.cnt = 0
 

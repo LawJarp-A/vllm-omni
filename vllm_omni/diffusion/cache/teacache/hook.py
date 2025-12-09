@@ -44,14 +44,28 @@ class TeaCacheHook(ModelHook):
     _HOOK_NAME = "teacache"
 
     def __init__(self, config: TeaCacheConfig):
+        """
+        Initialize TeaCacheHook.
+
+        Args:
+            config: TeaCache configuration object.
+        """
         super().__init__()
         self.config = config
         self.rescale_func = np.poly1d(config.coefficients)
         self.state_manager = StateManager(TeaCacheState)
         self.extractor_fn = None
 
-    def initialize_hook(self, module):
-        """Initialize hook with extractor from config model type."""
+    def initialize_hook(self, module: torch.nn.Module) -> torch.nn.Module:
+        """
+        Initialize hook with extractor from config model type.
+
+        Args:
+            module: The module to initialize the hook for.
+
+        Returns:
+            The initialized module.
+        """
         # Get extractor function based on model_type from config
         # model_type should be the pipeline class name (e.g., "QwenImagePipeline")
         self.extractor_fn = get_extractor(self.config.model_type)
@@ -61,7 +75,7 @@ class TeaCacheHook(ModelHook):
 
         return module
 
-    def new_forward(self, module, *args: Any, **kwargs: Any):
+    def new_forward(self, module: torch.nn.Module, *args: Any, **kwargs: Any) -> Any:
         """
         Generic forward handler that works for ANY model.
 
@@ -193,13 +207,21 @@ class TeaCacheHook(ModelHook):
             state.accumulated_rel_l1_distance = 0.0  # Reset accumulator
             return True  # Compute
 
-    def reset_state(self, module):
-        """Reset all cached states for a new inference run."""
+    def reset_state(self, module: torch.nn.Module) -> torch.nn.Module:
+        """
+        Reset all cached states for a new inference run.
+
+        Args:
+            module: The module to reset state for.
+
+        Returns:
+            The module with reset state.
+        """
         self.state_manager.reset()
         return module
 
 
-def apply_teacache_hook(module, config: TeaCacheConfig) -> None:
+def apply_teacache_hook(module: torch.nn.Module, config: TeaCacheConfig) -> None:
     """
     Apply TeaCache optimization to a transformer module.
 

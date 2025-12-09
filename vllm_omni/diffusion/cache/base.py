@@ -12,6 +12,8 @@ Cache adapters provide a unified interface for applying different caching strate
 from abc import ABC, abstractmethod
 from typing import Any
 
+import torch
+
 
 class CacheAdapter(ABC):
     """
@@ -35,7 +37,7 @@ class CacheAdapter(ABC):
         self.config = config
 
     @abstractmethod
-    def apply(self, transformer) -> None:
+    def apply(self, transformer: torch.nn.Module) -> None:
         """
         Apply cache to transformer using hooks.
 
@@ -49,7 +51,7 @@ class CacheAdapter(ABC):
         raise NotImplementedError("Subclasses must implement apply()")
 
     @abstractmethod
-    def reset(self, transformer) -> None:
+    def reset(self, transformer: torch.nn.Module) -> None:
         """
         Reset cache state for new generation.
 

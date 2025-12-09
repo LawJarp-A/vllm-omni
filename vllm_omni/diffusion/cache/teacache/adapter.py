@@ -8,6 +8,8 @@ This module provides the TeaCache adapter that implements the CacheAdapter
 interface using the hooks-based TeaCache system.
 """
 
+import torch
+
 from vllm.logger import init_logger
 
 from vllm_omni.diffusion.cache.base import CacheAdapter
@@ -36,7 +38,7 @@ class TeaCacheAdapter(CacheAdapter):
         >>> adapter.reset(transformer)  # Reset before each generation
     """
 
-    def apply(self, transformer) -> None:
+    def apply(self, transformer: torch.nn.Module) -> None:
         """
         Apply TeaCache to transformer using hooks.
 
@@ -70,7 +72,7 @@ class TeaCacheAdapter(CacheAdapter):
             f"model_type={teacache_config.model_type}"
         )
 
-    def reset(self, transformer) -> None:
+    def reset(self, transformer: torch.nn.Module) -> None:
         """
         Reset TeaCache state for new generation.
 

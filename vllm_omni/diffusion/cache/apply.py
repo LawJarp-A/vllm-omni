@@ -11,6 +11,7 @@ and application to the model.
 
 from typing import Optional
 
+import torch
 from vllm.logger import init_logger
 
 from vllm_omni.diffusion.cache.base import CacheAdapter
@@ -20,7 +21,7 @@ logger = init_logger(__name__)
 
 
 def setup_cache(
-    transformer,
+    transformer: torch.nn.Module,
     cache_type: str = "none",
     cache_config: Optional[dict] = None,
 ) -> Optional[CacheAdapter]:
