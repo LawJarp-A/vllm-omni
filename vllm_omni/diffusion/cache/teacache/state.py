@@ -31,7 +31,7 @@ class TeaCacheState:
         self.previous_residual: Optional[torch.Tensor] = None
         self.previous_residual_encoder: Optional[torch.Tensor] = None
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset all state variables for a new inference run."""
         self.cnt = 0
         self.accumulated_rel_l1_distance = 0.0

@@ -54,7 +54,7 @@ class TeaCacheConfig:
     coefficients: Optional[list[float]] = None
     model_type: str = "QwenImagePipeline"
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate and set default coefficients."""
         if self.rel_l1_thresh <= 0:
             raise ValueError(f"rel_l1_thresh must be positive, got {self.rel_l1_thresh}")

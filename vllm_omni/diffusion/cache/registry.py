@@ -9,6 +9,7 @@ registration and instantiation of different cache types (TeaCache, DeepCache, et
 """
 
 from enum import Enum
+from typing import Any
 
 from vllm.logger import init_logger
 
@@ -52,7 +53,7 @@ def register_cache_adapter(cache_type: CacheType, adapter_class: type[CacheAdapt
     logger.debug(f"Registered cache adapter: {cache_type.value} -> {adapter_class.__name__}")
 
 
-def get_cache_adapter(cache_type: str, config: dict) -> CacheAdapter:
+def get_cache_adapter(cache_type: str, config: dict[str, Any]) -> CacheAdapter:
     """
     Factory function to get cache adapter instance.
 
