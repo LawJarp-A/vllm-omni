@@ -268,6 +268,9 @@ class QwenImagePipeline(
             )
             logger.info("Loaded Qwen-Image tokenizer successfully.")
 
+        # Initialize cache adapter to None (will be set by worker or setup_cache if needed)
+        self._cache_adapter = None
+
         self.stage = None
 
         self.vae_scale_factor = 2 ** len(self.vae.temperal_downsample) if getattr(self, "vae", None) else 8
