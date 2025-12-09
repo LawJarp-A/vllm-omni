@@ -67,6 +67,17 @@ class GPUWorker:
         logger.info(f"Worker {self.rank}: Initialized device, model, and distributed environment.")
         logger.info(f"Worker {self.rank}: Model loaded successfully.")
 
+        # Apply cache adapter
+        from vllm_omni.diffusion.cache.apply import setup_cache
+
+        self.od_config.cache_config["model_type"] = self.od_config.model_class_name
+
+        self.pipeline._cache_adapter = setup_cache(
+            self.pipeline.transformer,
+            cache_type=self.od_config.cache_adapter,
+            cache_config=self.od_config.cache_config,
+        )
+
     @torch.inference_mode()
     def execute_model(self, reqs: list[OmniDiffusionRequest], od_config: OmniDiffusionConfig) -> DiffusionOutput:
         """
