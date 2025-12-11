@@ -17,6 +17,7 @@ nav:
     - usage/*
   - Configuration:
     - configuration/README.md
+    - TeaCache Configuration: user_guide/teacache.md
     - configuration/*
   - Models:
     - models/supported_models.md
