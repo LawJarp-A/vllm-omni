@@ -99,5 +99,13 @@ cache_config={"rel_l1_thresh": 0.1}  # More conservative caching
 
 ## Supported Models
 
-- **Qwen-Image** - Fully supported
-- **FLUX** - Coming soon
+Currently supported models:
+
+- **QwenImagePipeline**
+  - Model identifier: `"Qwen/Qwen-Image"`
+  - Example: `model="Qwen/Qwen-Image"`
+
+Future support (extractors in development):
+
+- **FluxPipeline** - Coming soon
+- **CogVideoXPipeline** - Coming soon
