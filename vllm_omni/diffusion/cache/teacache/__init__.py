@@ -13,7 +13,7 @@ new models.
 
 Usage:
     from vllm_omni import Omni
-    
+
     omni = Omni(
         model="Qwen/Qwen-Image",
         cache_adapter="tea_cache",
