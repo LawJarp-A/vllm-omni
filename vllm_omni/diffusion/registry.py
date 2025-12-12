@@ -24,6 +24,16 @@ _DIFFUSION_MODELS = {
         "pipeline_z_image",
         "ZImagePipeline",
     ),
+    "Flux2Pipeline": (
+        "flux2",
+        "pipeline_flux2",
+        "Flux2Pipeline",
+    ),
+    "WanPipeline": (
+        "wan2_2",
+        "pipeline_wan2_2",
+        "Wan22Pipeline",
+    ),
 }
 
 
@@ -61,6 +71,8 @@ _DIFFUSION_POST_PROCESS_FUNCS = {
     "QwenImagePipeline": "get_qwen_image_post_process_func",
     "QwenImageEditPipeline": "get_qwen_image_edit_post_process_func",
     "ZImagePipeline": "get_post_process_func",
+    "Flux2Pipeline": "get_flux2_post_process_func",
+    "WanPipeline": "get_wan22_post_process_func",
 }
 
 _DIFFUSION_PRE_PROCESS_FUNCS = {
