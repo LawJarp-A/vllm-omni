@@ -4,6 +4,7 @@
 import json
 import os
 from collections.abc import Iterable
+import inspect
 from typing import Any, Optional, Union
 
 import numpy as np
@@ -65,6 +66,40 @@ def compute_empirical_mu(image_seq_len: int, num_steps: int) -> float:
     mu = a * num_steps + b
 
     return float(mu)
+
+
+def retrieve_timesteps(
+    scheduler,
+    num_inference_steps: Optional[int] = None,
+    device: Optional[Union[str, torch.device]] = None,
+    timesteps: Optional[list[int]] = None,
+    sigmas: Optional[list[float]] = None,
+    **kwargs,
+) -> tuple[torch.Tensor, int]:
+    """Set scheduler timesteps and return (timesteps, num_inference_steps)."""
+    if timesteps is not None and sigmas is not None:
+        raise ValueError("Only one of `timesteps` or `sigmas` can be passed.")
+
+    if timesteps is not None:
+        accepts_timesteps = "timesteps" in set(inspect.signature(scheduler.set_timesteps).parameters.keys())
+        if not accepts_timesteps:
+            raise ValueError(f"{scheduler.__class__}.set_timesteps does not support custom timesteps.")
+        scheduler.set_timesteps(timesteps=timesteps, device=device, **kwargs)
+        timesteps = scheduler.timesteps
+        num_inference_steps = len(timesteps)
+    elif sigmas is not None:
+        accepts_sigmas = "sigmas" in set(inspect.signature(scheduler.set_timesteps).parameters.keys())
+        if not accepts_sigmas:
+            raise ValueError(f"{scheduler.__class__}.set_timesteps does not support custom sigmas.")
+        scheduler.set_timesteps(sigmas=sigmas, device=device, **kwargs)
+        timesteps = scheduler.timesteps
+        num_inference_steps = len(timesteps)
+    else:
+        assert num_inference_steps is not None
+        scheduler.set_timesteps(num_inference_steps, device=device, **kwargs)
+        timesteps = scheduler.timesteps
+
+    return timesteps, num_inference_steps
 
 
 def get_flux2_post_process_func(od_config: OmniDiffusionConfig):
@@ -550,9 +585,16 @@ class Flux2Pipeline(nn.Module):
         # 5. Prepare timesteps
         image_seq_len = latents.shape[1]
         mu = compute_empirical_mu(image_seq_len=image_seq_len, num_steps=num_inference_steps)
-        sigmas = np.linspace(1.0, 1 / num_inference_steps, num_inference_steps)
-        self.scheduler.set_timesteps(num_inference_steps, device=device, sigmas=sigmas, mu=mu)
-        timesteps = self.scheduler.timesteps
+        sigmas = np.linspace(1.0, 1 / num_inference_steps, num_inference_steps).tolist()
+        if hasattr(self.scheduler.config, "use_flow_sigmas") and self.scheduler.config.use_flow_sigmas:
+            sigmas = None
+        timesteps, num_inference_steps = retrieve_timesteps(
+            self.scheduler,
+            num_inference_steps=num_inference_steps,
+            device=device,
+            sigmas=sigmas,
+            mu=mu,
+        )
         self._num_timesteps = len(timesteps)
 
         # 6. Handle guidance
