@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
-import json
 import os
 from collections.abc import Iterable
 import inspect
@@ -22,13 +21,13 @@ from transformers import AutoProcessor, Mistral3ForConditionalGeneration
 from vllm.logger import init_logger
 from vllm.model_executor.model_loader.utils import set_default_torch_dtype
 from vllm.model_executor.models.utils import AutoWeightsLoader
+from vllm.transformers_utils.config import get_hf_file_to_dict
 
 from vllm_omni.diffusion.data import DiffusionOutput, OmniDiffusionConfig
 from vllm_omni.diffusion.distributed.utils import get_local_device
 from vllm_omni.diffusion.model_loader.diffusers_loader import DiffusersPipelineLoader
 from vllm_omni.diffusion.models.flux2.flux2_transformer import Flux2Transformer2DModel
 from vllm_omni.diffusion.request import OmniDiffusionRequest
-from vllm_omni.model_executor.model_loader.weight_utils import download_weights_from_hf_specific
 
 logger = init_logger(__name__)
 
@@ -104,17 +103,10 @@ def retrieve_timesteps(
 
 def get_flux2_post_process_func(od_config: OmniDiffusionConfig):
     """Create post-processing function to convert tensors to PIL images."""
-    model_name = od_config.model
-    if os.path.exists(model_name):
-        model_path = model_name
-    else:
-        model_path = download_weights_from_hf_specific(model_name, None, ["*"])
-
-    # Read VAE config to determine scale factor
-    vae_config_path = os.path.join(model_path, "vae/config.json")
-    with open(vae_config_path) as f:
-        vae_config = json.load(f)
-        vae_scale_factor = 2 ** (len(vae_config.get("block_out_channels", [3])) - 1)
+    # Fetch only config (avoid downloading full model weights in postprocess).
+    vae_config = get_hf_file_to_dict("vae/config.json", od_config.model)
+    block_out_channels = vae_config.get("block_out_channels", None)
+    vae_scale_factor = 2 ** (len(block_out_channels) - 1) if block_out_channels else 8
 
     # Create image processor
     image_processor = Flux2ImageProcessor(vae_scale_factor=vae_scale_factor * 2)
