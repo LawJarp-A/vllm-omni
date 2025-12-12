@@ -574,6 +574,15 @@ class Flux2Pipeline(nn.Module):
             latents=latents,
         )
 
+        # Flux2Transformer2DModel currently assumes identical token ID layouts across the batch.
+        # Fail fast if callers provide variable-length prompts or mixed resolutions per batch.
+        if text_ids.shape[0] > 1 and not torch.all(text_ids == text_ids[:1]).item():
+            raise ValueError(
+                "Flux2 does not support variable-length prompt token ids across the batch (batched mixed prompt lengths)."
+            )
+        if latent_ids.shape[0] > 1 and not torch.all(latent_ids == latent_ids[:1]).item():
+            raise ValueError("Flux2 does not support variable image token ids across the batch (batched mixed sizes).")
+
         # 5. Prepare timesteps
         image_seq_len = latents.shape[1]
         mu = compute_empirical_mu(image_seq_len=image_seq_len, num_steps=num_inference_steps)
