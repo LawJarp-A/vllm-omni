@@ -12,6 +12,7 @@ from vllm.logger import init_logger
 from vllm.utils.mem_utils import DeviceMemoryProfiler, GiB_bytes
 
 from vllm_omni.diffusion.cache.selector import get_cache_backend
+from vllm_omni.diffusion.cpu_offload.backend import CPUOffloadBackend
 from vllm_omni.diffusion.data import (
     SHUTDOWN_MESSAGE,
     DiffusionOutput,
@@ -106,6 +107,16 @@ class GPUWorker:
 
         if self.cache_backend is not None:
             self.cache_backend.enable(self.pipeline)
+
+        # Setup CPU offload backend
+        self.cpu_offload_backend = CPUOffloadBackend(self.od_config, device)
+        if (
+            self.od_config.dit_cpu_offload
+            or self.od_config.text_encoder_cpu_offload
+            or self.od_config.vae_cpu_offload
+            or self.od_config.image_encoder_cpu_offload
+        ):
+            self.cpu_offload_backend.enable(self.pipeline)
 
     @torch.inference_mode()
     def execute_model(self, reqs: list[OmniDiffusionRequest], od_config: OmniDiffusionConfig) -> DiffusionOutput:
