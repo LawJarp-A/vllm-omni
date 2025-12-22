@@ -170,16 +170,10 @@ class ZImagePipeline(nn.Module):
         self.text_encoder = AutoModel.from_pretrained(
             model, subfolder="text_encoder", local_files_only=local_files_only
         )
-        if od_config.text_encoder_cpu_offload:
-            self.text_encoder = self.text_encoder.to("cpu")
 
         self.vae = AutoencoderKL.from_pretrained(model, subfolder="vae", local_files_only=local_files_only)
-        if not od_config.vae_cpu_offload:
-            self.vae = self.vae.to(self._execution_device)
 
         self.transformer = ZImageTransformer2DModel()
-        if od_config.dit_cpu_offload:
-            self.transformer = self.transformer.to("cpu")
         self.tokenizer = AutoTokenizer.from_pretrained(model, subfolder="tokenizer", local_files_only=local_files_only)
 
         self.vae_scale_factor = (
@@ -218,8 +212,6 @@ class ZImagePipeline(nn.Module):
             )
         else:
             negative_prompt_embeds = []
-        if self.od_config.text_encoder_cpu_offload:
-            self.text_encoder = self.text_encoder.to("cpu")
 
         return prompt_embeds, negative_prompt_embeds
 
@@ -260,11 +252,6 @@ class ZImagePipeline(nn.Module):
 
         text_input_ids = text_inputs.input_ids.to(device)
         prompt_masks = text_inputs.attention_mask.to(device).bool()
-
-        if self.od_config.text_encoder_cpu_offload:
-            self.text_encoder = self.text_encoder.to(device)
-        if self.od_config.dit_cpu_offload:
-            self.transformer = self.transformer.to("cpu")
         prompt_embeds = self.text_encoder(
             input_ids=text_input_ids,
             attention_mask=prompt_masks,
@@ -563,10 +550,6 @@ class ZImagePipeline(nn.Module):
             latent_model_input = latent_model_input.unsqueeze(2)
             latent_model_input_list = list(latent_model_input.unbind(dim=0))
 
-            if self.od_config.dit_cpu_offload:
-                self.transformer = self.transformer.to(latents.device)
-            if self.od_config.text_encoder_cpu_offload:
-                self.text_encoder = self.text_encoder.to("cpu")
             model_out_list = self.transformer(
                 latent_model_input_list,
                 timestep_model_input,
@@ -622,8 +605,6 @@ class ZImagePipeline(nn.Module):
             latents = latents.to(self.vae.dtype)
             latents = (latents / self.vae.config.scaling_factor) + self.vae.config.shift_factor
 
-            if self.od_config.vae_cpu_offload:
-                self.vae = self.vae.to(latents.device)
             image = self.vae.decode(latents, return_dict=False)[0]
             # image = self.image_processor.postprocess(image, output_type=output_type)
 

@@ -264,16 +264,10 @@ class QwenImagePipeline(
         self.text_encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             model, subfolder="text_encoder", local_files_only=local_files_only
         )
-        if od_config.text_encoder_cpu_offload:
-            self.text_encoder = self.text_encoder.to("cpu")
 
         self.vae = AutoencoderKLQwenImage.from_pretrained(model, subfolder="vae", local_files_only=local_files_only)
-        if not od_config.vae_cpu_offload:
-            self.vae = self.vae.to(self.device)
 
         self.transformer = QwenImageTransformer2DModel(od_config=od_config)
-        if od_config.dit_cpu_offload:
-            self.transformer = self.transformer.to("cpu")
 
         self.tokenizer = Qwen2Tokenizer.from_pretrained(model, subfolder="tokenizer", local_files_only=local_files_only)
 
@@ -379,10 +373,6 @@ class QwenImagePipeline(
             truncation=True,
             return_tensors="pt",
         ).to(self.device)
-        if self.od_config.text_encoder_cpu_offload:
-            self.text_encoder = self.text_encoder.to(self.device)
-        if self.od_config.dit_cpu_offload:
-            self.transformer = self.transformer.to("cpu")
         # print(f"attention mask: {txt_tokens.attention_mask}")
         encoder_hidden_states = self.text_encoder(
             input_ids=txt_tokens.input_ids,
@@ -402,9 +392,6 @@ class QwenImagePipeline(
         )
 
         prompt_embeds = prompt_embeds.to(dtype=dtype)
-
-        if self.od_config.text_encoder_cpu_offload:
-            self.text_encoder = self.text_encoder.to("cpu")
 
         return prompt_embeds, encoder_attention_mask
 
@@ -565,10 +552,6 @@ class QwenImagePipeline(
             timestep = t.expand(latents.shape[0]).to(device=latents.device, dtype=latents.dtype)
 
             # Forward pass for positive prompt (or unconditional if no CFG)
-            if self.od_config.dit_cpu_offload:
-                self.transformer = self.transformer.to(latents.device)
-            if self.od_config.text_encoder_cpu_offload:
-                self.text_encoder = self.text_encoder.to("cpu")
             self.transformer.do_true_cfg = do_true_cfg
             noise_pred = self.transformer(
                 hidden_states=latents,
@@ -761,8 +744,6 @@ class QwenImagePipeline(
                 latents.device, latents.dtype
             )
             latents = latents / latents_std + latents_mean
-            if self.od_config.vae_cpu_offload:
-                self.vae = self.vae.to(latents.device)
             image = self.vae.decode(latents, return_dict=False)[0][:, :, 0]
             # processed_image = self.image_processor.postprocess(image, output_type=output_type)
 

@@ -188,12 +188,8 @@ class QwenImageLayeredPipeline(
         self.text_encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             model, subfolder="text_encoder", local_files_only=local_files_only
         )
-        if od_config.text_encoder_cpu_offload:
-            self.text_encoder = self.text_encoder.to("cpu")
 
         self.vae = AutoencoderKLQwenImage.from_pretrained(model, subfolder="vae", local_files_only=local_files_only)
-        if not od_config.vae_cpu_offload:
-            self.vae = self.vae.to(self.device)
         self.tokenizer = Qwen2Tokenizer.from_pretrained(model, subfolder="tokenizer", local_files_only=local_files_only)
         self.processor = Qwen2VLProcessor.from_pretrained(
             model, subfolder="processor", local_files_only=local_files_only
@@ -270,10 +266,6 @@ the image\n<|vision_start|><|image_pad|><|vision_end|><|im_end|>\n<|im_start|>as
         # VLLM-omni related, Initialize cache backend to None (will be set by worker if needed)
         self._cache_backend = None
         self.stage = None
-
-        # CPU offloading support
-        if od_config.dit_cpu_offload:
-            self.transformer = self.transformer.to("cpu")
 
     def check_inputs(
         self,
@@ -353,10 +345,6 @@ the image\n<|vision_start|><|image_pad|><|vision_end|><|im_end|>\n<|im_start|>as
             padding=True,
             return_tensors="pt",
         ).to(device)
-        if self.od_config.text_encoder_cpu_offload:
-            self.text_encoder = self.text_encoder.to(device)
-        if self.od_config.dit_cpu_offload:
-            self.transformer = self.transformer.to("cpu")
         encoder_hidden_states = self.text_encoder(
             input_ids=txt_tokens.input_ids,
             attention_mask=txt_tokens.attention_mask,
@@ -375,9 +363,6 @@ the image\n<|vision_start|><|image_pad|><|vision_end|><|im_end|>\n<|im_start|>as
         )
 
         prompt_embeds = prompt_embeds.to(dtype=dtype, device=device)
-
-        if self.od_config.text_encoder_cpu_offload:
-            self.text_encoder = self.text_encoder.to("cpu")
 
         return prompt_embeds, encoder_attention_mask
 
@@ -423,8 +408,6 @@ the image\n<|vision_start|><|image_pad|><|vision_end|><|im_end|>\n<|im_start|>as
         return prompt_embeds, prompt_embeds_mask
 
     def _encode_vae_image(self, image: torch.Tensor, generator: torch.Generator):
-        if self.od_config.vae_cpu_offload:
-            self.vae = self.vae.to(image.device)
         if isinstance(generator, list):
             image_latents = [
                 retrieve_latents(self.vae.encode(image[i : i + 1]), generator=generator[i], sample_mode="argmax")
@@ -603,10 +586,6 @@ the image\n<|vision_start|><|image_pad|><|vision_end|><|im_end|>\n<|im_start|>as
             if self._cache_backend is not None:
                 transformer_kwargs["cache_branch"] = "positive"
 
-            if self.od_config.dit_cpu_offload:
-                self.transformer = self.transformer.to(latents.device)
-            if self.od_config.text_encoder_cpu_offload:
-                self.text_encoder = self.text_encoder.to("cpu")
             noise_pred = self.transformer(**transformer_kwargs)[0]
             noise_pred = noise_pred[:, : latents.size(1)]
 
@@ -895,8 +874,6 @@ the image\n<|vision_start|><|image_pad|><|vision_end|><|im_end|>\n<|im_start|>as
 
             latents = latents.permute(0, 2, 1, 3, 4).view(-1, c, 1, h, w)
 
-            if self.od_config.vae_cpu_offload:
-                self.vae = self.vae.to(latents.device)
             image = self.vae.decode(latents, return_dict=False)[0]  # (b f) c 1 h w
 
             image = image.squeeze(2)

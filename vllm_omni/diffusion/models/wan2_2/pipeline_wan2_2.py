@@ -76,23 +76,14 @@ class Wan22Pipeline(nn.Module):
         self.text_encoder = UMT5EncoderModel.from_pretrained(
             model, subfolder="text_encoder", torch_dtype=dtype, local_files_only=local_files_only
         )
-        if od_config.text_encoder_cpu_offload:
-            self.text_encoder = self.text_encoder.to("cpu")
-        else:
-            self.text_encoder = self.text_encoder.to(self.device)
 
         self.vae = AutoencoderKLWan.from_pretrained(
             model, subfolder="vae", torch_dtype=torch.float32, local_files_only=local_files_only
         )
-        if not od_config.vae_cpu_offload:
-            self.vae = self.vae.to(self.device)
 
         # Initialize transformers without from_pretrained (weights loaded via load_weights)
         self.transformer = WanTransformer3DModel()
         self.transformer_2 = WanTransformer3DModel()
-        if od_config.dit_cpu_offload:
-            self.transformer = self.transformer.to("cpu")
-            self.transformer_2 = self.transformer_2.to("cpu")
 
         self.scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(
             model, subfolder="scheduler", local_files_only=local_files_only
@@ -239,11 +230,6 @@ class Wan22Pipeline(nn.Module):
             attention_kwargs = {}
 
         # Denoising
-        if self.od_config.dit_cpu_offload:
-            self.transformer = self.transformer.to(device)
-            self.transformer_2 = self.transformer_2.to(device)
-        if self.od_config.text_encoder_cpu_offload:
-            self.text_encoder = self.text_encoder.to("cpu")
         for t in timesteps:
             self._current_timestep = t
             current_model = self.transformer
@@ -324,11 +310,6 @@ class Wan22Pipeline(nn.Module):
         ids, mask = text_inputs.input_ids, text_inputs.attention_mask
         seq_lens = mask.gt(0).sum(dim=1).long()
 
-        if self.od_config.text_encoder_cpu_offload:
-            self.text_encoder = self.text_encoder.to(device)
-        if self.od_config.dit_cpu_offload:
-            self.transformer = self.transformer.to("cpu")
-            self.transformer_2 = self.transformer_2.to("cpu")
         prompt_embeds = self.text_encoder(ids.to(device), mask.to(device)).last_hidden_state
         prompt_embeds = prompt_embeds.to(dtype=dtype, device=device)
         prompt_embeds = [u[:v] for u, v in zip(prompt_embeds, seq_lens)]
@@ -339,9 +320,6 @@ class Wan22Pipeline(nn.Module):
         _, seq_len, _ = prompt_embeds.shape
         prompt_embeds = prompt_embeds.repeat(1, num_videos_per_prompt, 1)
         prompt_embeds = prompt_embeds.view(batch_size * num_videos_per_prompt, seq_len, -1)
-
-        if self.od_config.text_encoder_cpu_offload and not do_classifier_free_guidance:
-            self.text_encoder = self.text_encoder.to("cpu")
 
         negative_prompt_embeds = None
         if do_classifier_free_guidance:
@@ -361,8 +339,6 @@ class Wan22Pipeline(nn.Module):
             negative_prompt_embeds = self.text_encoder(ids_neg.to(device), mask_neg.to(device)).last_hidden_state
             negative_prompt_embeds = negative_prompt_embeds.to(dtype=dtype, device=device)
             negative_prompt_embeds = [u[:v] for u, v in zip(negative_prompt_embeds, seq_lens_neg)]
-            if self.od_config.text_encoder_cpu_offload:
-                self.text_encoder = self.text_encoder.to("cpu")
             negative_prompt_embeds = torch.stack(
                 [
                     torch.cat([u, u.new_zeros(max_sequence_length - u.size(0), u.size(1))])
