@@ -220,11 +220,16 @@ class QwenImageEditPipeline(
         self.text_encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             model, subfolder="text_encoder", local_files_only=local_files_only
         )
+        if od_config.text_encoder_cpu_offload:
+            self.text_encoder = self.text_encoder.to("cpu")
 
-        self.vae = AutoencoderKLQwenImage.from_pretrained(model, subfolder="vae", local_files_only=local_files_only).to(
-            self.device
-        )
+        self.vae = AutoencoderKLQwenImage.from_pretrained(model, subfolder="vae", local_files_only=local_files_only)
+        if not od_config.vae_cpu_offload:
+            self.vae = self.vae.to(self.device)
+
         self.transformer = QwenImageTransformer2DModel(od_config=od_config)
+        if od_config.dit_cpu_offload:
+            self.transformer = self.transformer.to("cpu")
         self.tokenizer = Qwen2Tokenizer.from_pretrained(model, subfolder="tokenizer", local_files_only=local_files_only)
         self.processor = Qwen2VLProcessor.from_pretrained(
             model, subfolder="processor", local_files_only=local_files_only
@@ -327,6 +332,10 @@ class QwenImageEditPipeline(
             return_tensors="pt",
         ).to(self.device)
 
+        if self.od_config.text_encoder_cpu_offload:
+            self.text_encoder = self.text_encoder.to(self.device)
+        if self.od_config.dit_cpu_offload:
+            self.transformer = self.transformer.to("cpu")
         outputs = self.text_encoder(
             input_ids=model_inputs.input_ids,
             attention_mask=model_inputs.attention_mask,
@@ -348,6 +357,9 @@ class QwenImageEditPipeline(
         )
 
         prompt_embeds = prompt_embeds.to(dtype=dtype, device=self.device)
+
+        if self.od_config.text_encoder_cpu_offload:
+            self.text_encoder = self.text_encoder.to("cpu")
 
         return prompt_embeds, encoder_attention_mask
 
@@ -374,6 +386,10 @@ class QwenImageEditPipeline(
             return_tensors="pt",
         ).to(self.device)
 
+        if self.od_config.text_encoder_cpu_offload:
+            self.text_encoder = self.text_encoder.to(self.device)
+        if self.od_config.dit_cpu_offload:
+            self.transformer = self.transformer.to("cpu")
         outputs = self.text_encoder(
             input_ids=model_inputs.input_ids,
             attention_mask=model_inputs.attention_mask,
@@ -460,6 +476,8 @@ class QwenImageEditPipeline(
         return latents
 
     def _encode_vae_image(self, image: torch.Tensor, generator: torch.Generator):
+        if self.od_config.vae_cpu_offload:
+            self.vae = self.vae.to(image.device)
         if isinstance(generator, list):
             image_latents = [
                 retrieve_latents(self.vae.encode(image[i : i + 1]), generator=generator[i], sample_mode="argmax")
@@ -604,6 +622,10 @@ class QwenImageEditPipeline(
             if image_latents is not None:
                 latent_model_input = torch.cat([latents, image_latents], dim=1)
 
+            if self.od_config.dit_cpu_offload:
+                self.transformer = self.transformer.to(latents.device)
+            if self.od_config.text_encoder_cpu_offload:
+                self.text_encoder = self.text_encoder.to("cpu")
             self.transformer.do_true_cfg = do_true_cfg  # used in teacache hook
             # Forward pass for positive prompt (or unconditional if no CFG)
             noise_pred = self.transformer(
@@ -826,6 +848,8 @@ class QwenImageEditPipeline(
                 latents.device, latents.dtype
             )
             latents = latents / latents_std + latents_mean
+            if self.od_config.vae_cpu_offload:
+                self.vae = self.vae.to(latents.device)
             image = self.vae.decode(latents, return_dict=False)[0][:, :, 0]
 
         return DiffusionOutput(output=image)

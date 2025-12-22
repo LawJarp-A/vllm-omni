@@ -170,16 +170,20 @@ class OvisImagePipeline(
         self.text_encoder = Qwen3Model.from_pretrained(
             model, subfolder="text_encoder", local_files_only=local_files_only
         )
+        if od_config.text_encoder_cpu_offload:
+            self.text_encoder = self.text_encoder.to("cpu")
 
-        self.vae = AutoencoderKL.from_pretrained(model, subfolder="vae", local_files_only=local_files_only).to(
-            self._execution_device
-        )
+        self.vae = AutoencoderKL.from_pretrained(model, subfolder="vae", local_files_only=local_files_only)
+        if not od_config.vae_cpu_offload:
+            self.vae = self.vae.to(self._execution_device)
 
         self.tokenizer = Qwen2TokenizerFast.from_pretrained(
             model, subfolder="tokenizer", local_files_only=local_files_only
         )
 
         self.transformer = OvisImageTransformer2DModel(od_config=od_config)
+        if od_config.dit_cpu_offload:
+            self.transformer = self.transformer.to("cpu")
 
         self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1) if getattr(self, "vae", None) else 8
 
@@ -241,6 +245,10 @@ class OvisImagePipeline(
         input_ids = tokens.input_ids.to(device=device)
         attention_mask = tokens.attention_mask.to(device=device)
 
+        if self.od_config.text_encoder_cpu_offload:
+            self.text_encoder = self.text_encoder.to(device)
+        if self.od_config.dit_cpu_offload:
+            self.transformer = self.transformer.to("cpu")
         outputs = self.text_encoder(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -253,6 +261,9 @@ class OvisImagePipeline(
         _, seq_len, _ = prompt_embeds.shape
         prompt_embeds = prompt_embeds.repeat(1, num_images_per_prompt, 1)
         prompt_embeds = prompt_embeds.view(batch_size * num_images_per_prompt, seq_len, -1)
+
+        if self.od_config.text_encoder_cpu_offload:
+            self.text_encoder = self.text_encoder.to("cpu")
 
         return prompt_embeds
 
@@ -454,6 +465,10 @@ class OvisImagePipeline(
             # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
             timestep = t.expand(latents.shape[0]).to(latents.dtype)
 
+            if self.od_config.dit_cpu_offload:
+                self.transformer = self.transformer.to(latents.device)
+            if self.od_config.text_encoder_cpu_offload:
+                self.text_encoder = self.text_encoder.to("cpu")
             noise_pred = self.transformer(
                 hidden_states=latents,
                 timestep=timestep / 1000,
@@ -719,6 +734,8 @@ class OvisImagePipeline(
         else:
             latents = self._unpack_latents(latents, height, width, self.vae_scale_factor)
             latents = (latents / self.vae.config.scaling_factor) + self.vae.config.shift_factor
+            if self.od_config.vae_cpu_offload:
+                self.vae = self.vae.to(latents.device)
             image = self.vae.decode(latents, return_dict=False)[0]
 
         return DiffusionOutput(output=image)

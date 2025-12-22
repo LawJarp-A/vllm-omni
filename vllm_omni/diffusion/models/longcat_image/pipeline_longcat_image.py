@@ -229,13 +229,19 @@ class LongCatImagePipeline(
         self.text_encoder = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             model, subfolder="text_encoder", local_files_only=local_files_only
         )
+        if od_config.text_encoder_cpu_offload:
+            self.text_encoder = self.text_encoder.to("cpu")
+
         self.text_processor = Qwen2VLProcessor.from_pretrained(
             model, subfolder="tokenizer", local_files_only=local_files_only
         )
-        self.vae = AutoencoderKL.from_pretrained(model, subfolder="vae", local_files_only=local_files_only).to(
-            self.device
-        )
+        self.vae = AutoencoderKL.from_pretrained(model, subfolder="vae", local_files_only=local_files_only)
+        if not od_config.vae_cpu_offload:
+            self.vae = self.vae.to(self.device)
+
         self.transformer = LongCatImageTransformer2DModel(od_config=od_config)
+        if od_config.dit_cpu_offload:
+            self.transformer = self.transformer.to("cpu")
         self.tokenizer = AutoTokenizer.from_pretrained(model, subfolder="tokenizer", local_files_only=local_files_only)
 
         self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1) if getattr(self, "vae", None) else 8
@@ -334,9 +340,15 @@ class LongCatImagePipeline(
         input_ids = input_ids.to(self.device)
         attention_mask = attention_mask.to(self.device)
 
+        if self.od_config.text_encoder_cpu_offload:
+            self.text_encoder = self.text_encoder.to(self.device)
+        if self.od_config.dit_cpu_offload:
+            self.transformer = self.transformer.to("cpu")
         text_output = self.text_encoder(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True)
         prompt_embeds = text_output.hidden_states[-1].detach()
         prompt_embeds = prompt_embeds[:, prefix_len:-suffix_len, :]
+        if self.od_config.text_encoder_cpu_offload:
+            self.text_encoder = self.text_encoder.to("cpu")
         return prompt_embeds
 
     def encode_prompt(
@@ -588,6 +600,10 @@ class LongCatImagePipeline(
             self._current_timestep = t
             timestep = t.expand(latents.shape[0]).to(latents.dtype)
 
+            if self.od_config.dit_cpu_offload:
+                self.transformer = self.transformer.to(latents.device)
+            if self.od_config.text_encoder_cpu_offload:
+                self.text_encoder = self.text_encoder.to("cpu")
             noise_pred_text = self.transformer(
                 hidden_states=latents,
                 timestep=timestep / 1000,
@@ -637,6 +653,8 @@ class LongCatImagePipeline(
             if latents.dtype != self.vae.dtype:
                 latents = latents.to(dtype=self.vae.dtype)
 
+            if self.od_config.vae_cpu_offload:
+                self.vae = self.vae.to(latents.device)
             image = self.vae.decode(latents, return_dict=False)[0]
 
         return DiffusionOutput(output=image)
