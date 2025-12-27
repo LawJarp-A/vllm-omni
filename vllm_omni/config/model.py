@@ -73,6 +73,17 @@ class OmniModelConfig(ModelConfig):
     engine_output_type: str | None = None
     hf_config_name: str | None = None
 
+    # CPU offload parameters for transformer models
+    cpu_offload_enabled: bool = False
+    """Enable CPU offloading for transformer model components. Default: False (disabled to minimize latency)."""
+    cpu_offload_components: list[str] | None = None
+    """List of component names to offload (e.g., ["thinker", "talker", "visual"]).
+    If None, all available components are offloaded."""
+    cpu_offload_strategy: str = "alternating"
+    """Offloading strategy: "alternating" (move to GPU when needed, offload others) or "sequential" (load on demand)."""
+    cpu_offload_pin_memory: bool = True
+    """Pin CPU memory for faster CPU↔GPU transfers. Default: True."""
+
     @property
     def registry(self):
         return me_models.OmniModelRegistry

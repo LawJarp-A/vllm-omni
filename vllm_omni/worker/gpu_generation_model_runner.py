@@ -27,6 +27,7 @@ from vllm.v1.worker.gpu_model_runner import (
 )
 from vllm.v1.worker.utils import sanity_check_mm_encoder_outputs
 
+from vllm_omni.model_executor.cpu_offload import TransformerCPUOffloadBackend
 from vllm_omni.outputs import OmniModelRunnerOutput
 from vllm_omni.worker.gpu_model_runner import OmniGPUModelRunner
 
@@ -40,6 +41,11 @@ class GPUGenerationModelRunner(OmniGPUModelRunner):
     - Does not compute logits or perform token sampling.
     - Executes generation process and returns tensors via `pooler_output`.
     """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Initialize CPU offload backend (hooks will be applied in load_model)
+        self.cpu_offload_backend: TransformerCPUOffloadBackend | None = None
 
     @torch.inference_mode()
     def execute_model(
@@ -180,6 +186,16 @@ class GPUGenerationModelRunner(OmniGPUModelRunner):
             invalid_req_indices=[],
             async_output_copy_stream=self.async_output_copy_stream,
         )
+
+    def load_model(self, eep_scale_up: bool = False) -> None:
+        """Load model and apply CPU offload hooks if enabled."""
+        # Call parent load_model to load the model
+        super().load_model(eep_scale_up=eep_scale_up)
+
+        # Apply CPU offload hooks after model is loaded
+        if hasattr(self.model_config, "cpu_offload_enabled") and self.model_config.cpu_offload_enabled:
+            self.cpu_offload_backend = TransformerCPUOffloadBackend(self.model_config, self.device)
+            self.cpu_offload_backend.enable(self.model)
 
     def _run_generation_model(
         self,

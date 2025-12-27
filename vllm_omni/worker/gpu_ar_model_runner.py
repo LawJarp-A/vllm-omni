@@ -29,6 +29,7 @@ from vllm.v1.worker.gpu_model_runner import (
 )
 from vllm.v1.worker.utils import is_residual_scattered_for_sp
 
+from vllm_omni.model_executor.cpu_offload import TransformerCPUOffloadBackend
 from vllm_omni.outputs import OmniModelRunnerOutput
 from vllm_omni.worker.gpu_model_runner import OmniGPUModelRunner
 
@@ -62,6 +63,8 @@ class GPUARModelRunner(OmniGPUModelRunner):
         # each model stage has their own hidden size
         self.hidden_size = self.model_config.hf_text_config.hidden_size
         self.inputs_embeds = self._make_buffer(self.max_num_tokens, self.hidden_size, dtype=self.dtype, numpy=False)
+        # Initialize CPU offload backend (hooks will be applied in load_model)
+        self.cpu_offload_backend: TransformerCPUOffloadBackend | None = None
 
     def _make_buffer(self, *size, dtype, numpy=True):
         # Prevent ray from pinning the buffer due to large size
@@ -75,6 +78,16 @@ class GPUARModelRunner(OmniGPUModelRunner):
         # Use the context manager to temporarily disable pinning if needed
         with maybe_disable_pin_memory_for_ray(self, total_bytes):
             return super()._make_buffer(*size, dtype=dtype, numpy=numpy)
+
+    def load_model(self, eep_scale_up: bool = False) -> None:
+        """Load model and apply CPU offload hooks if enabled."""
+        # Call parent load_model to load the model
+        super().load_model(eep_scale_up=eep_scale_up)
+
+        # Apply CPU offload hooks after model is loaded
+        if hasattr(self.model_config, "cpu_offload_enabled") and self.model_config.cpu_offload_enabled:
+            self.cpu_offload_backend = TransformerCPUOffloadBackend(self.model_config, self.device)
+            self.cpu_offload_backend.enable(self.model)
 
     @torch.inference_mode()
     def execute_model(

@@ -89,6 +89,13 @@ class HookRegistry:
     def dispatch(self, *args: Any, **kwargs: Any):
         # For now we support a single active hook and call it directly.
         # This can be extended to a chain if needed.
+        # TODO: If multiple hooks are needed on the same module (e.g., CPU offload + quantization),
+        #       implement hook chaining here by calling hooks in sequence:
+        #       result = args, kwargs
+        #       for name in sorted(self._hooks.keys()):
+        #           hook = self._hooks[name]
+        #           result = hook.new_forward(self.module, *result[0], **result[1])
+        #       return result
         if not self._hooks:
             return self.module._original_forward(*args, **kwargs)  # type: ignore[attr-defined]
         # Deterministic order: sort by name.

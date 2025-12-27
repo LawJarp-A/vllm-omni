@@ -43,6 +43,17 @@ class OmniEngineArgs(EngineArgs):
     engine_output_type: str | None = None
     hf_config_name: str | None = None
 
+    # CPU offload parameters for transformer models
+    cpu_offload_enabled: bool = False
+    """Enable CPU offloading for transformer model components. Default: False (disabled to minimize latency)."""
+    cpu_offload_components: list[str] | None = None
+    """List of component names to offload (e.g., ["thinker", "talker", "visual"]).
+    If None, all available components are offloaded."""
+    cpu_offload_strategy: str = "alternating"
+    """Offloading strategy: "alternating" (move to GPU when needed, offload others) or "sequential" (load on demand)."""
+    cpu_offload_pin_memory: bool = True
+    """Pin CPU memory for faster CPU↔GPU transfers. Default: True."""
+
     def draw_hf_text_config(self, config_dict: dict) -> Qwen3OmniMoeTextConfig:
         # transformers' get_text_config method is used to get the text config from thinker_config.
         # to handle the case that each model stage has their own text config,
@@ -84,6 +95,11 @@ class OmniEngineArgs(EngineArgs):
         config_dict["hf_config_name"] = self.hf_config_name
         if self.hf_config_name is not None:
             config_dict["hf_text_config"] = self.draw_hf_text_config(config_dict)
+        # Add CPU offload fields
+        config_dict["cpu_offload_enabled"] = self.cpu_offload_enabled
+        config_dict["cpu_offload_components"] = self.cpu_offload_components
+        config_dict["cpu_offload_strategy"] = self.cpu_offload_strategy
+        config_dict["cpu_offload_pin_memory"] = self.cpu_offload_pin_memory
         # Create and return the OmniModelConfig instance
         omni_config = OmniModelConfig(**config_dict)
         omni_config.hf_config.architectures = omni_config.architectures
@@ -112,6 +128,17 @@ class AsyncOmniEngineArgs(AsyncEngineArgs):
     model_arch: str = "Qwen2_5OmniForConditionalGeneration"
     engine_output_type: str | None = None
     hf_config_name: str | None = None
+
+    # CPU offload parameters for transformer models
+    cpu_offload_enabled: bool = False
+    """Enable CPU offloading for transformer model components. Default: False (disabled to minimize latency)."""
+    cpu_offload_components: list[str] | None = None
+    """List of component names to offload (e.g., ["thinker", "talker", "visual"]).
+    If None, all available components are offloaded."""
+    cpu_offload_strategy: str = "alternating"
+    """Offloading strategy: "alternating" (move to GPU when needed, offload others) or "sequential" (load on demand)."""
+    cpu_offload_pin_memory: bool = True
+    """Pin CPU memory for faster CPU↔GPU transfers. Default: True."""
 
     def draw_hf_text_config(self, config_dict: dict) -> Qwen3OmniMoeTextConfig:
         # transformers' get_text_config method is used to get the text config from thinker_config.
@@ -145,6 +172,11 @@ class AsyncOmniEngineArgs(AsyncEngineArgs):
         config_dict["hf_config_name"] = self.hf_config_name
         if self.hf_config_name is not None:
             config_dict["hf_text_config"] = self.draw_hf_text_config(config_dict)
+        # Add CPU offload fields
+        config_dict["cpu_offload_enabled"] = self.cpu_offload_enabled
+        config_dict["cpu_offload_components"] = self.cpu_offload_components
+        config_dict["cpu_offload_strategy"] = self.cpu_offload_strategy
+        config_dict["cpu_offload_pin_memory"] = self.cpu_offload_pin_memory
         # Create and return the OmniModelConfig instance
         omni_config = OmniModelConfig(**config_dict)
         omni_config.hf_config.architectures = omni_config.architectures
