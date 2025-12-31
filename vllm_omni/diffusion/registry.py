@@ -93,7 +93,15 @@ def initialize_model(
                 model.vae.use_tiling = od_config.vae_use_tiling
 
         # Apply CPU offloading with hooks - works for ALL pipelines automatically
-        apply_offload_hooks(model, od_config)
+        if any(
+            [
+                getattr(od_config, "text_encoder_cpu_offload", False),
+                getattr(od_config, "vae_cpu_offload", False),
+                getattr(od_config, "image_encoder_cpu_offload", False),
+                getattr(od_config, "dit_cpu_offload", False),
+            ]
+        ):
+            apply_offload_hooks(model, od_config)
 
         return model
     else:
