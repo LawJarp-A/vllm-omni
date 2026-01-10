@@ -115,7 +115,12 @@ class SequentialOffloader:
         self._handles = []
 
 
-def apply_offload_hooks(model: nn.Module, od_config: OmniDiffusionConfig) -> None:
+def apply_offload_hooks(
+    model: nn.Module,
+    od_config: OmniDiffusionConfig,
+    *,
+    device: torch.device | None = None,
+) -> None:
     """Apply mutual-exclusion offload hooks based on config.
 
     When dit_cpu_offload is enabled, DiT and encoders swap GPU access:
@@ -143,11 +148,11 @@ def apply_offload_hooks(model: nn.Module, od_config: OmniDiffusionConfig) -> Non
         logger.warning("dit_cpu_offload enabled but no transformer/dit/unet found")
         return
 
-    # Capture execution device BEFORE moving DiT to CPU
-    try:
-        device = next(dit.parameters()).device
-    except StopIteration:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if device is None:
+        try:
+            device = next(dit.parameters()).device
+        except StopIteration:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Collect all encoders
     encoders = []
@@ -164,7 +169,6 @@ def apply_offload_hooks(model: nn.Module, od_config: OmniDiffusionConfig) -> Non
     # Initial state: DiT on CPU (encoders run first, they stay on GPU)
     pin = getattr(od_config, "pin_cpu_memory", True)
     dit.to("cpu")
-    print("Moved DiT to CPU for offloading.")
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     if pin and torch.cuda.is_available():
