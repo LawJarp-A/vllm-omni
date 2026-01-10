@@ -2,44 +2,36 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 import multiprocessing as mp
 import os
+import time
 
 import torch
-import zmq
-from vllm.config import VllmConfig, set_current_vllm_config
-from vllm.distributed.device_communicators.shm_broadcast import MessageQueue
-from vllm.distributed.parallel_state import (
+from vllm.config import LoadConfig, VllmConfig
+from vllm.logger import init_logger
+from vllm.utils.mem_utils import DeviceMemoryProfiler, GiB_bytes
+
+from vllm_omni.diffusion.cache.selector import get_cache_backend
+from vllm_omni.diffusion.data import (
+    OmniDiffusionConfig,
+)
+from vllm_omni.diffusion.distributed.parallel_state import (
     init_distributed_environment,
     initialize_model_parallel,
 )
-from vllm.logger import init_logger
-
-from vllm_omni.diffusion.data import DiffusionOutput, OmniDiffusionConfig
-from vllm_omni.diffusion.registry import initialize_model
-from vllm_omni.diffusion.request import OmniDiffusionRequest
+from vllm_omni.diffusion.forward_context import set_forward_context
+from vllm_omni.diffusion.model_loader.diffusers_loader import DiffusersPipelineLoader
+from vllm_omni.diffusion.worker.gpu_worker import GPUWorker, WorkerProc
 
 logger = init_logger(__name__)
 
 
-class NPUWorker:
+class NPUWorker(GPUWorker):
     """
     A worker that executes the model on a single NPU.
+    Inherits from GPUWorker and overrides device-specific initialization.
     """
 
-    def __init__(
-        self,
-        local_rank: int,
-        rank: int,
-        od_config: OmniDiffusionConfig,
-    ):
-        self.local_rank = local_rank
-        self.rank = rank
-        self.od_config = od_config
-        self.pipeline = None
-
-        self.init_device_and_model()
-
     def init_device_and_model(self) -> None:
-        """Initialize the device and load the model."""
+        """Initialize the NPU device and load the model."""
         world_size = self.od_config.num_gpus
         rank = self.rank
         # Set environment variables for distributed initialization
@@ -54,122 +46,57 @@ class NPUWorker:
 
         # hack
         vllm_config = VllmConfig()
-        vllm_config.parallel_config.tensor_parallel_size = self.od_config.num_gpus
-        set_current_vllm_config(vllm_config)
+        vllm_config.parallel_config.tensor_parallel_size = self.od_config.parallel_config.tensor_parallel_size
+        vllm_config.parallel_config.data_parallel_size = self.od_config.parallel_config.data_parallel_size
+        self.vllm_config = vllm_config
+        with set_forward_context(vllm_config=vllm_config, omni_diffusion_config=self.od_config):
+            init_distributed_environment(world_size=world_size, rank=rank)
+            logger.info(f"Worker {self.rank}: Initialized device and distributed environment.")
+            parallel_config = self.od_config.parallel_config
+            initialize_model_parallel(
+                data_parallel_size=parallel_config.data_parallel_size,
+                cfg_parallel_size=parallel_config.cfg_parallel_size,
+                sequence_parallel_size=parallel_config.sequence_parallel_size,
+                ulysses_degree=parallel_config.ulysses_degree,
+                ring_degree=parallel_config.ring_degree,
+                tensor_parallel_size=parallel_config.tensor_parallel_size,
+                pipeline_parallel_size=parallel_config.pipeline_parallel_size,
+            )
 
-        init_distributed_environment(world_size=world_size, rank=rank)
-        initialize_model_parallel(tensor_model_parallel_size=world_size)
+            load_config = LoadConfig()
+            model_loader = DiffusersPipelineLoader(load_config)
+            time_before_load = time.perf_counter()
+            with DeviceMemoryProfiler() as m:
+                self.pipeline = model_loader.load_model(
+                    od_config=self.od_config,
+                    load_device=f"npu:{rank}",
+                )
+            time_after_load = time.perf_counter()
 
-        with device:
-            self.pipeline = initialize_model(self.od_config)
-            self.pipeline.load_weights()
-            self.pipeline.eval()
-        logger.info(f"Worker {self.rank}: Initialized device, model, and distributed environment.")
+        logger.info(
+            "Model loading took %.4f GiB and %.6f seconds",
+            m.consumed_memory / GiB_bytes,
+            time_after_load - time_before_load,
+        )
         logger.info(f"Worker {self.rank}: Model loaded successfully.")
 
-    @torch.inference_mode()
-    def execute_model(self, reqs: list[OmniDiffusionRequest], od_config: OmniDiffusionConfig) -> DiffusionOutput:
-        """
-        Execute a forward pass.
-        """
-        assert self.pipeline is not None
-        # TODO: dealing with first req for now
-        req = reqs[0]
-        output = self.pipeline.forward(req)
-        return output
+        # Setup cache backend based on type (both backends use enable()/reset() interface)
+        self.cache_backend = get_cache_backend(self.od_config.cache_backend, self.od_config.cache_config)
+
+        if self.cache_backend is not None:
+            self.cache_backend.enable(self.pipeline)
 
 
-class NPUWorkerProc:
-    """Wrapper that runs one Worker in a separate process."""
+class NPUWorkerProc(WorkerProc):
+    """Wrapper that runs one NPUWorker in a separate process."""
 
-    def __init__(
-        self,
-        od_config: OmniDiffusionConfig,
-        gpu_id: int,
-        broadcast_handle,
-    ):
-        self.od_config = od_config
-
-        # Inter-process Communication
-        self.context = zmq.Context(io_threads=2)
-
-        # Initialize MessageQueue reader from handle
-        self.mq = MessageQueue.create_from_handle(broadcast_handle, gpu_id)
-
-        self.result_mq = None
-        self.result_mq_handle = None
-
-        # Setup result sender (only for rank 0 for now, or whoever needs to reply)
-        # Assuming only rank 0 replies to scheduler as per original logic
-        if gpu_id == 0:
-            # Create MessageQueue for results (1 writer -> 1 reader)
-            # We assume the reader (SyncScheduler) will act as rank 0
-            self.result_mq = MessageQueue(n_reader=1, n_local_reader=1, local_reader_ranks=[0])
-            self.result_mq_handle = self.result_mq.export_handle()
-            logger.info(f"Worker {gpu_id} created result MessageQueue")
-
-        assert od_config.master_port is not None
-        worker = NPUWorker(
+    def _create_worker(self, gpu_id: int, od_config: OmniDiffusionConfig) -> NPUWorker:
+        """Create an NPUWorker instead of GPUWorker."""
+        return NPUWorker(
             local_rank=gpu_id,
             rank=gpu_id,
             od_config=od_config,
         )
-        self.worker = worker
-        self.gpu_id = gpu_id
-        self._running = True
-
-    def return_result(self, output: DiffusionOutput):
-        """
-        replies to client, only on rank 0
-        """
-        if self.result_mq is not None:
-            self.result_mq.enqueue(output)
-
-    def recv_reqs(self):
-        """
-        Receive requests from broadcast queue
-        """
-        return self.mq.dequeue()
-
-    # TODO: queueing, cancellation
-    def worker_busy_loop(self) -> None:
-        """Main busy loop for Multiprocessing Workers"""
-
-        logger.info(f"Worker {self.gpu_id} ready to receive requests via shared memory")
-
-        while self._running:
-            reqs = None
-            # 1: receive requests
-            try:
-                reqs = self.recv_reqs()
-            except Exception as e:
-                logger.error(
-                    f"Error receiving requests in scheduler event loop: {e}",
-                    exc_info=True,
-                )
-                continue
-
-            # 2: execute, make sure a reply is always sent
-            try:
-                output = self.worker.execute_model(reqs, self.od_config)
-            except Exception as e:
-                logger.error(
-                    f"Error executing forward in event loop: {e}",
-                    exc_info=True,
-                )
-                output = DiffusionOutput(error=str(e))
-
-            try:
-                self.return_result(output)
-            except zmq.ZMQError as e:
-                # Reply failed; log and keep loop alive to accept future requests
-                logger.error(f"ZMQ error sending reply: {e}")
-                continue
-
-        logger.info("event loop terminated.")
-        # if self.result_sender is not None:
-        #     self.result_sender.close()
-        self.context.term()
 
     @staticmethod
     def worker_main(

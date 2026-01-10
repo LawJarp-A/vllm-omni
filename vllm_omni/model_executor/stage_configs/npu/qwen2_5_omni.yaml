@@ -1,6 +1,7 @@
 # stage config for running qwen2.5-omni with architecture of OmniLLM.
 stage_args:
   - stage_id: 0
+    stage_type: llm  # Use llm stage type to launch OmniLLM
     runtime:
       process: true            # Run this stage in a separate process
       devices: "0"            # Visible devices for this stage
@@ -9,7 +10,7 @@ stage_args:
       model_stage: thinker
       model_arch: Qwen2_5OmniForConditionalGeneration
       worker_cls: vllm_omni.worker.npu.npu_ar_worker.NPUARWorker
-      scheduler_cls: vllm_omni.core.sched.scheduler.OmniScheduler
+      scheduler_cls: vllm_omni.core.sched.omni_ar_scheduler.OmniARScheduler
       gpu_memory_utilization: 0.8
       enforce_eager: true  # Now we only support eager mode
       trust_remote_code: true
@@ -27,6 +28,7 @@ stage_args:
       detokenize: True
       repetition_penalty: 1.1
   - stage_id: 1
+    stage_type: llm  # Use llm stage type to launch OmniLLM
     runtime:
       process: true
       devices: "1"
@@ -35,7 +37,7 @@ stage_args:
       model_stage: talker
       model_arch: Qwen2_5OmniForConditionalGeneration
       worker_cls: vllm_omni.worker.npu.npu_ar_worker.NPUARWorker
-      scheduler_cls: vllm_omni.core.sched.scheduler.OmniScheduler
+      scheduler_cls: vllm_omni.core.sched.omni_ar_scheduler.OmniARScheduler
       gpu_memory_utilization: 0.8
       enforce_eager: true
       trust_remote_code: true
@@ -53,6 +55,7 @@ stage_args:
       repetition_penalty: 1.05
       stop_token_ids: [8294]
   - stage_id: 2
+    stage_type: llm  # Use llm stage type to launch OmniLLM
     runtime:
       process: true
       devices: "0"            # Example: use a different NPU than the previous stage; use "0" if single NPU
@@ -60,8 +63,8 @@ stage_args:
     engine_args:
       model_stage: code2wav
       model_arch: Qwen2_5OmniForConditionalGeneration
-      worker_cls: vllm_omni.worker.npu.npu_diffusion_worker.NPUDiffusionWorker
-      scheduler_cls: vllm_omni.core.sched.diffusion_scheduler.DiffusionScheduler
+      worker_cls: vllm_omni.worker.npu.npu_generation_worker.NPUGenerationWorker
+      scheduler_cls: vllm_omni.core.sched.omni_generation_scheduler.OmniGenerationScheduler
       gpu_memory_utilization: 0.15
       enforce_eager: true
       trust_remote_code: true

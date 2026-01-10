@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vllm-omni"
-version = "0.11.0rc1"
-description = "vLLM-Omni: Multi-modality models inference and serving with non-autoregressive structures"
+version = "0.12.0rc1"
+description = "A framework for efficient model inference with omni-modality models"
 readme = "README.md"
-requires-python = ">=3.9,<3.14"  # Align with vLLM v0.11 supported Python versions
+requires-python = ">=3.10,<3.14"
 license = {text = "Apache-2.0"}
 authors = [
-    {name = "vLLM-Omni Team", email = "vllm-project@gmail.com"}
+    {name = "vLLM-Omni Team"}
 ]
 keywords = ["vllm", "multimodal", "diffusion", "transformer", "inference", "serving"]
 classifiers = [
@@ -18,26 +18,28 @@ classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
+
 dependencies = [
     # Core runtime dependencies (required for actual usage)
     "omegaconf>=2.3.0",
-    # "decord>=0.6.0", # install manually
     "librosa>=0.11.0",
     "resampy>=0.4.3",
-    "diffusers==0.35.2",
+    "diffusers>=0.36.0",
     "accelerate==1.12.0",
     "gradio==5.50",
-    "soundfile>=0.13.1"
-    # "vllm==0.11.0",  # TODO: fix the entrypoints overwrite problem
+    "soundfile>=0.13.1",
+    "cache-dit==1.1.8",
+    "tqdm>=4.66.0",
+    "torchsde>=0.2.6",  # Required for Stable Audio scheduler
+    # "vllm==0.12.0",  # TODO: fix the entrypoints overwrite problem
 ]
 
 [project.optional-dependencies]
@@ -46,10 +48,8 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
-    "black>=23.0.0",
-    "isort>=5.12.0",
-    "mypy>=1.0.0",
-    "pre-commit>=3.0.0",
+    "mypy==1.11.1",
+    "pre-commit==4.0.1",
 ]
 
 docs = [
@@ -63,8 +63,8 @@ docs = [
     "mkdocs-git-revision-date-localized-plugin",
     "mkdocs-minify-plugin",
     "regex",
+    "ruff",
     "pydantic",
-    "black>=23.0.0",
 ]
 
 
@@ -155,6 +155,7 @@ markers = [
     "integration: Integration tests",
     "benchmark: Benchmark tests",
     "slow: Slow tests",
+    "core_model: enable this model test in each PR instead of only nightly",
 ]
 
 [tool.typos.default]
@@ -166,5 +167,6 @@ extend-ignore-identifiers-re = [
     ".*MoBA",
     ".*temperal_downsample",
     ".*nothink.*",
-    ".*NOTHINK.*"
+    ".*NOTHINK.*",
+    ".*nin.*",
 ]
