@@ -36,7 +36,7 @@ nav:
     - models/supported_models.md
   - Features:
     - Sleep Mode: features/sleep_mode.md
-    - CPU Offload: features/cpu_offload.md
+    - CPU Offloading: features/cpu_offload.md
 - Developer Guide:
   - General:
     - contributing/README.md
