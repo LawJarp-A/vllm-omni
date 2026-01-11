@@ -28,20 +28,24 @@ class SequentialOffloader:
     """Sequential offloader: DiT and encoders take turns on GPU.
 
     Uses PyTorch's forward pre-hooks to automatically swap models:
-    - Before encoder runs: move DiT to CPU, move encoder to GPU
-    - Before DiT runs: move encoders to CPU, move DiT to GPU
+    - Before encoder runs: move DiT modules to CPU, move encoder to GPU
+    - Before DiT runs: move encoders to CPU, move active DiT to GPU
 
-    This ensures only one large model is on GPU at a time.
+    This ensures only one large model group is on GPU at a time.
     """
 
     def __init__(
         self,
-        dit: nn.Module,
+        dits: nn.Module | list[nn.Module],
         encoders: list[nn.Module],
         device: torch.device,
         pin_memory: bool = True,
     ):
-        self.dit = dit
+        if isinstance(dits, nn.Module):
+            self.dits = [dits]
+        else:
+            # Filter out any None values just in case
+            self.dits = [mod for mod in dits if isinstance(mod, nn.Module)]
         self.encoders = encoders
         self.device = device
         self.pin_memory = pin_memory
@@ -84,23 +88,28 @@ class SequentialOffloader:
         """Before DiT forward: offload encoders, load DiT."""
         for enc in self.encoders:
             self._to_cpu(enc)
+        for dit_mod in self.dits:
+            if dit_mod is not module:
+                self._to_cpu(dit_mod)
         self._to_gpu(module)
         torch.cuda.synchronize()
         logger.debug("Swapped: encoders -> CPU, DiT -> GPU")
 
     def _encoder_pre_hook(self, module: nn.Module, args: tuple) -> None:
         """Before encoder forward: offload DiT, load encoder."""
-        self._to_cpu(self.dit)
+        for dit_mod in self.dits:
+            self._to_cpu(dit_mod)
         self._to_gpu(module)
         torch.cuda.synchronize()
         logger.debug("Swapped: DiT -> CPU, encoder -> GPU")
 
     def register(self) -> None:
         """Register forward pre-hooks on DiT and encoders."""
-        # Hook on DiT
-        h = self.dit.register_forward_pre_hook(self._dit_pre_hook)
-        self._handles.append(h)
-        logger.debug("Registered offload hook for DiT")
+        # Hook on each DiT-like module
+        for dit_mod in self.dits:
+            h = dit_mod.register_forward_pre_hook(self._dit_pre_hook)
+            self._handles.append(h)
+            logger.debug("Registered offload hook for %s", dit_mod.__class__.__name__)
 
         # Hook on each encoder
         for enc in self.encoders:
@@ -135,22 +144,32 @@ def apply_offload_hooks(
     if not getattr(od_config, "dit_cpu_offload", False):
         return
 
-    # Find DiT/transformer/unet
-    dit = None
-    dit_attr = None
-    for attr in ["transformer", "dit", "unet"]:
-        if hasattr(model, attr) and getattr(model, attr) is not None:
-            dit = getattr(model, attr)
-            dit_attr = attr
-            break
+    # Find DiT/transformer modules
+    dit_modules: list[nn.Module] = []
+    dit_names: list[str] = []
+    candidate_attrs = ["transformer", "transformer_2", "dit"]
+    for attr in candidate_attrs:
+        if not hasattr(model, attr):
+            continue
+        module_obj = getattr(model, attr)
+        if module_obj is None:
+            continue
 
-    if dit is None:
+        assert isinstance(module_obj, nn.Module), f"Expected {attr} to be nn.Module, got {type(module_obj)!r}"
+
+        if module_obj in dit_modules:
+            continue
+
+        dit_modules.append(module_obj)
+        dit_names.append(attr)
+
+    if not dit_modules:
         logger.warning("dit_cpu_offload enabled but no transformer/dit/unet found")
         return
 
     if device is None:
         try:
-            device = next(dit.parameters()).device
+            device = next(dit_modules[0].parameters()).device
         except StopIteration:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -166,21 +185,23 @@ def apply_offload_hooks(
         logger.warning("dit_cpu_offload enabled but no encoders found")
         return
 
-    # Initial state: DiT on CPU (encoders run first, they stay on GPU)
+    # Initial state: keep DiT modules on CPU (encoders typically run first)
     pin = getattr(od_config, "pin_cpu_memory", True)
-    dit.to("cpu")
+    for dit_mod in dit_modules:
+        dit_mod.to("cpu")
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     if pin and torch.cuda.is_available():
-        for p in dit.parameters():
-            if not p.data.is_pinned():
-                p.data = p.data.pin_memory()
+        for dit_mod in dit_modules:
+            for p in dit_mod.parameters():
+                if p.data.device.type == "cpu" and not p.data.is_pinned():
+                    p.data = p.data.pin_memory()
 
     # Register sequential offload hooks
-    SequentialOffloader(dit, encoders, device, pin).register()
+    SequentialOffloader(dit_modules, encoders, device, pin).register()
 
     logger.info(
         "CPU offload enabled: %s <-> %s (mutual exclusion)",
-        dit_attr,
+        ", ".join(dit_names),
         ", ".join(encoder_names),
     )
