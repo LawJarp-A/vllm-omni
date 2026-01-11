@@ -443,11 +443,6 @@ class OmniDiffusionConfig:
             # If it's neither dict nor DiffusionCacheConfig, convert to empty config
             self.cache_config = DiffusionCacheConfig()
 
-        # CPU offload and torch.compile do not mix: keep execution eager.
-        if self.dit_cpu_offload and not self.enforce_eager:
-            logger.info("dit_cpu_offload enabled; forcing eager execution mode.")
-            self.enforce_eager = True
-
     def update_multimodal_support(self) -> None:
         self.supports_multimodal_inputs = self.model_class_name in {"QwenImageEditPlusPipeline"}
 

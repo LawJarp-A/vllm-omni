@@ -116,11 +116,6 @@ class GPUWorker:
                     logger.debug("Failed to move %s to GPU: %s", name, exc)
 
             apply_offload_hooks(self.pipeline, self.od_config, device=self.device)
-            if not self.od_config.enforce_eager:
-                logger.info(
-                    "dit_cpu_offload enabled; forcing eager mode to avoid persistent GPU residency.",
-                )
-                self.od_config.enforce_eager = True
 
         if not self.od_config.enforce_eager:
             try:
@@ -131,11 +126,6 @@ class GPUWorker:
                 logger.info(f"Worker {self.rank}: Model compiled with torch.compile.")
             except Exception as e:
                 logger.warning(f"Worker {self.rank}: torch.compile failed with error: {e}. Using eager mode.")
-        elif self.od_config.dit_cpu_offload:
-            logger.info(
-                "Worker %s: Skipping torch.compile because CPU offload is active.",
-                self.rank,
-            )
 
         # Setup cache backend based on type (both backends use enable()/reset() interface)
         self.cache_backend = get_cache_backend(self.od_config.cache_backend, self.od_config.cache_config)
