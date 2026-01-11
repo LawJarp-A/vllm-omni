@@ -106,7 +106,7 @@ class GPUWorker:
 
         # Apply CPU offloading (DiT <-> encoders mutual exclusion)
         if self.od_config.dit_cpu_offload:
-            for name in "vae":
+            for name in ["vae"]:
                 module = getattr(self.pipeline, name, None)
                 if module is None:
                     continue
